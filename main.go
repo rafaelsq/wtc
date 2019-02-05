@@ -10,8 +10,8 @@ import (
 
 	"github.com/rjeczalik/notify"
 
-	"gitlab.com/rafaelsq/watch/async"
-	"gitlab.com/rafaelsq/watch/cmd"
+	"gitlab.com/rafaelsq/wtc/async"
+	"gitlab.com/rafaelsq/wtc/cmd"
 )
 
 var argCMD = "server"

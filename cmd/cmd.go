@@ -5,7 +5,7 @@ import (
 	"context"
 	"os/exec"
 
-	"gitlab.com/rafaelsq/watch/async"
+	"gitlab.com/rafaelsq/wtc/async"
 )
 
 type Type uint8
