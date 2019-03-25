@@ -43,7 +43,9 @@ func Watch() error {
 	build := make(chan context.Context)
 
 	go func() {
-		build <- ctx
+		c, cc := context.WithCancel(ctx)
+		cancel = &cc
+		build <- c
 	}()
 
 	for {
