@@ -10,46 +10,10 @@ import (
 
 	"github.com/rjeczalik/notify"
 
-	"gitlab.com/rafaelsq/wtc/async"
 	"gitlab.com/rafaelsq/wtc/cmd"
 )
 
 var argCMD = "server"
-
-func buildnrun(ctx context.Context) {
-	out := make(chan cmd.Msg)
-	done := make(chan struct{}, 1)
-
-	go func() {
-		for {
-			select {
-			case m := <-out:
-				if m.Type == cmd.Error {
-					fmt.Printf("\x1b[31;1m%s\x1b[0m\n", m.Text)
-				} else {
-					fmt.Printf("\x1b[32;1m%s\x1b[0m\n", m.Text)
-				}
-			case <-done:
-				return
-			}
-		}
-	}()
-
-	go func() {
-		err := async.Run(ctx, func(c context.Context) error {
-			err := cmd.CMD(c, out, "go", "build", "-i", "-o", "app")
-			if err != nil {
-				return err
-			}
-
-			return cmd.CMD(c, out, "./app", argCMD)
-		})
-		if err != nil {
-			fmt.Printf("\x1b[31;1merror: %s\x1b[0m\n", err.Error())
-		}
-		done <- struct{}{}
-	}()
-}
 
 func main() {
 	if len(os.Args) > 1 {
@@ -75,11 +39,11 @@ func Watch() error {
 		return err
 	}
 
-	go func() {
-		c, cc := context.WithCancel(ctx)
-		cancel = &cc
+	out := make(chan cmd.Msg)
+	build := make(chan context.Context)
 
-		buildnrun(c)
+	go func() {
+		build <- ctx
 	}()
 
 	for {
@@ -100,8 +64,32 @@ func Watch() error {
 
 				select {
 				case <-time.After(time.Duration(500) * time.Millisecond):
-					buildnrun(c)
+					out <- cmd.Msg{Text: fmt.Sprintf("\n[%v] %s", time.Now().Format("15:04:05"), filename)}
+					build <- c
 				case <-c.Done():
+				}
+			}()
+		case m := <-out:
+			if m.Type == cmd.Error {
+				fmt.Printf("\x1b[31;1m%s\x1b[0m\n", m.Text)
+			} else {
+				fmt.Printf("\x1b[32;1m%s\x1b[0m\n", m.Text)
+			}
+		case c := <-build:
+			go func() {
+				if err := cmd.CMD(c, out, "go", "build", "-i", "-o", "app"); err != nil {
+					out <- cmd.Msg{
+						Text: err.Error(),
+						Type: cmd.Error,
+					}
+					return
+				}
+
+				if err := cmd.CMD(c, out, "./app", argCMD); err != nil {
+					out <- cmd.Msg{
+						Text: fmt.Sprintf("\x1b[31;1merror: %s\x1b[0m\n", err.Error()),
+						Type: cmd.Error,
+					}
 				}
 			}()
 		}
