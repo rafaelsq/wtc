@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -11,10 +12,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rafaelsq/wtc/configuration"
 	"github.com/rjeczalik/notify"
+	yaml "gopkg.in/yaml.v2"
 )
 
-const debounceTimeout = time.Millisecond * 500
+var config configuration.Config
 
 var contexts map[string]context.CancelFunc
 var ctxmutex sync.Mutex
@@ -43,20 +46,43 @@ func simpleTask(task Task, _, _ string) error {
 	return run(getContext(task.name), nil, task.cmd[0], task.cmd[1:]...)
 }
 
-var buildCMD = []string{"-mod=vendor", "-o", "app", "main.go"}
-var runCMD = []string{"./app"}
+var buildCMD = "-mod=vendor -o app main.go"
+var runCMD = "./app"
 
 func main() {
-	if len(os.Args) > 1 {
-		buildCMD = strings.Split(os.Args[1], " ")
-		if len(os.Args) > 2 {
-			runCMD = strings.Split(os.Args[2], " ")
+	yamlFile, err := ioutil.ReadFile("wtc.yaml")
+	if err != nil {
+		if len(os.Args) > 1 {
+			buildCMD = os.Args[1]
+			if len(os.Args) > 2 {
+				runCMD = os.Args[2]
+			}
+		}
+		config = configuration.Config{
+			Build: buildCMD,
+			Run:   runCMD,
+			Rules: []configuration.Rule{
+				configuration.Rule{
+					Name:     "Test",
+					Regex:    `_test\.go$`,
+					Ignore:   "/vendor/",
+					Debounce: 500,
+					Command:  "test -mod=vendor -cover",
+				},
+			},
+		}
+	} else {
+		err = yaml.Unmarshal(yamlFile, &config)
+		if err != nil {
+			log.Fatalf("Invalid wtc.yaml: %v", err)
 		}
 	}
 
+	fmt.Println(config)
+
 	dir, _ := os.Getwd()
 
-	isTest := regexp.MustCompile(`_test\.go$`)
+	isTest := regexp.MustCompile(config.Test().Regex)
 	tasks := []Task{
 		{"run", regexp.MustCompile(`\.go$`), nil, func(t Task, _, file string) error {
 			if isTest.MatchString(file) {
@@ -73,7 +99,8 @@ func main() {
 				fmt.Printf("\x1b[38;5;239m[%s]\x1b[0m \x1b[38;5;2mTesting\x1b[0m %s/...\n",
 					time.Now().Format("15:04:05"), pkg[len(dir):])
 			}
-			return run(getContext(t.name), &log, "go", "test", "-mod=vendor", "-cover", pkg)
+			return run(getContext(t.name), &log, "go", append(strings.Split(config.Test().Command,
+				" "), pkg)...)
 		}},
 		{"lint", regexp.MustCompile(`\.go$`), nil, func(t Task, pkg, _ string) error {
 			_ = run(getContext(t.name), nil, "golangci-lint", "run", pkg)
@@ -101,7 +128,7 @@ func main() {
 		pkg := strings.Join(pieces[:len(pieces)-1], "/")
 
 		// ignore
-		if strings.HasPrefix(pkg, dir+"/vendor/") || strings.HasPrefix(pkg, dir+"/.git") {
+		if strings.HasPrefix(pkg, dir+config.Test().Ignore) || strings.HasPrefix(pkg, dir+"/.git") {
 			continue
 		}
 
@@ -124,7 +151,7 @@ func buildNRun(ctx context.Context) error {
 		fmt.Printf("\x1b[38;5;239m[%s]\x1b[0m \x1b[38;5;1mBuilding...\x1b[0m\n", start.Format("15:04:05"))
 	}
 
-	err := run(ctx, &print, "go", append([]string{"build"}, buildCMD...)...)
+	err := run(ctx, &print, "go", append([]string{"build"}, strings.Split(config.Build, " ")...)...)
 	if err != nil {
 		return fmt.Errorf("build failed; %w", err)
 	}
@@ -132,7 +159,7 @@ func buildNRun(ctx context.Context) error {
 	if ctx.Err() == nil {
 		fmt.Printf("\x1b[38;5;239m[%s]\x1b[0m \x1b[38;5;243mBuilded %s\x1b[0m\n", time.Now().Format("15:04:05"),
 			time.Since(start))
-		return run(ctx, nil, runCMD[0], runCMD[1:]...)
+		return run(ctx, nil, strings.Split(config.Run, " ")[0], strings.Split(config.Run, " ")[1:]...)
 	}
 
 	return nil
@@ -142,12 +169,15 @@ func run(ctx context.Context, onStart *func(), command string, args ...string) e
 	select {
 	case <-ctx.Done():
 		return nil
-	case <-time.After(debounceTimeout):
+	case <-time.After(time.Duration(config.Test().Debounce) * time.Millisecond):
 	}
 
 	if onStart != nil {
 		(*onStart)()
 	}
+
+	fmt.Println(command)
+	fmt.Println(args)
 
 	cmd := exec.Command(command, args...)
 	cmd.Stdout = os.Stdout
