@@ -1,15 +1,18 @@
 package configuration
 
 type Config struct {
-	Build string `yaml:"build"`
-	Run   string `yaml:"run"`
-	Rules []Rule `yaml:"rules"`
+	NoTrace  bool    `yaml:"no_trace"`
+	Ignore   *string `yaml:"ignore"`
+	Debounce int     `yaml:"debounce"`
+	Rules    []Rule  `yaml:"rules"`
+	Trig     *string `yaml:"trig"`
 }
 
 type Rule struct {
-	Name     string `yaml:"name"`
-	Regex    string `yaml:"regex"`
-	Ignore   string `yaml:"ignore"`
-	Debounce int    `yaml:"debounce"`
-	Command  string `yaml:"command"`
+	Name     string  `yaml:"name"`
+	Match    string  `yaml:"match"`
+	Ignore   *string `yaml:"ignore"`
+	Debounce int     `yaml:"debounce"`
+	Command  string  `yaml:"command"`
+	Trig     *string `yaml:"trig"`
 }

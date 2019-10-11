@@ -36,48 +36,101 @@ func getContext(label string) context.Context {
 }
 
 func main() {
-	yamlFile, err := ioutil.ReadFile("wtc.yaml")
-	if err != nil {
-		log.Fatalf("No wtc.yaml found")
-	}
-	err = yaml.Unmarshal(yamlFile, &config)
-	if err != nil {
-		log.Fatalf("Invalid wtc.yaml: %v", err)
+	buildCMD := "go build"
+	runCMD := "./$(basename `pwd`)"
+
+	if len(os.Args) > 1 {
+		buildCMD = os.Args[1]
+		if len(os.Args) > 2 {
+			runCMD = os.Args[2]
+		}
 	}
 
-	dir, _ := os.Getwd()
+	config = configuration.Config{
+		Debounce: 300,
+		Ignore:   &[]string{`\.git/`}[0],
+		Rules:    []configuration.Rule{},
+	}
+
+	yamlFile, err := ioutil.ReadFile("wtc.yaml")
+	if err != nil {
+		config.Trig = &[]string{"build"}[0]
+		config.Rules = append(config.Rules, configuration.Rule{
+			Name:    "run",
+			Match:   `^$`,
+			Command: runCMD,
+		})
+
+		config.Rules = append(config.Rules, configuration.Rule{
+			Name:     "build",
+			Match:    `\.go$`,
+			Debounce: config.Debounce,
+			Ignore:   &[]string{`_test\.go$`}[0],
+			Command:  buildCMD,
+			Trig:     &[]string{"run"}[0],
+		})
+
+		config.Rules = append(config.Rules, configuration.Rule{
+			Name:     "test",
+			Match:    `_test\.go$`,
+			Debounce: config.Debounce,
+			Command:  "go test -cover {PKG}",
+		})
+	} else {
+		err = yaml.Unmarshal(yamlFile, &config)
+		if err != nil {
+			log.Fatalf("Invalid wtc.yaml: %v", err)
+		}
+	}
+
+	for _, rule := range config.Rules {
+		if rule.Debounce == 0 {
+			rule.Debounce = config.Debounce
+		}
+	}
 
 	contexts = make(map[string]context.CancelFunc)
 
 	c := make(chan notify.EventInfo)
 
-	if err := notify.Watch("./...", c, notify.Create, notify.Write, notify.Remove); err != nil {
+	if err := notify.Watch("./...", c, notify.All); err != nil {
 		log.Fatal(err)
 	}
 	defer notify.Stop(c)
 
-	go func() {
-		if err := buildNRun(getContext("run")); err != nil {
-			log.Println(err)
-		}
-	}()
+	if config.Trig != nil {
+		go func() {
+			dir, _ := os.Getwd()
+			findAndTrig(*config.Trig, dir, dir)
+		}()
+	}
 	for ei := range c {
 		path := ei.Path()
 		pieces := strings.Split(path, "/")
 		pkg := strings.Join(pieces[:len(pieces)-1], "/")
 
 		// ignore
-		if strings.HasPrefix(pkg, dir+"/.git") {
-			continue
+		if config.Ignore != nil {
+			if regexp.MustCompile(*config.Ignore).MatchString(path) {
+				continue
+			}
 		}
 
 		for _, rule := range config.Rules {
-			task := rule
-			match := regexp.MustCompile(task.Regex)
-			if match.MatchString(path) {
+			rule := rule
+
+			if rule.Ignore != nil && regexp.MustCompile(*rule.Ignore).MatchString(path) {
+				continue
+			}
+			if regexp.MustCompile(rule.Match).MatchString(path) {
 				go func() {
-					if err := run(getContext(task.Name), task, nil); err != nil {
-						log.Printf("%s failed; %v\n", task.Name, err)
+					if err := trig(rule, pkg, path); err != nil {
+						log.Printf("%s failed; %v\n", rule.Name, err)
+						return
+					}
+
+					if rule.Trig != nil {
+						findAndTrig(*rule.Trig, pkg, path)
 					}
 				}()
 			}
@@ -85,49 +138,43 @@ func main() {
 	}
 }
 
-func buildNRun(ctx context.Context) error {
-	start := time.Now()
-	print := func() {
-		fmt.Printf("\x1b[38;5;239m[%s]\x1b[0m \x1b[38;5;1mBuilding...\x1b[0m\n", start.Format("15:04:05"))
-	}
-	buildTask := configuration.Rule{
-		Name:     "run",
-		Debounce: 500,
-		Command:  config.Build,
-	}
-	err := run(ctx, buildTask, &print)
-	if err != nil {
-		return fmt.Errorf("build failed; %w", err)
-	}
-
-	if ctx.Err() == nil {
-		fmt.Printf("\x1b[38;5;239m[%s]\x1b[0m \x1b[38;5;243mBuilt %s\x1b[0m\n", time.Now().Format("15:04:05"),
-			time.Since(start))
-		runTask := configuration.Rule{
-			Name:     "run",
-			Debounce: 500,
-			Command:  config.Run,
+func findAndTrig(key, pkg, path string) {
+	for _, r := range config.Rules {
+		if r.Name == key {
+			if err := trig(r, pkg, path); err != nil {
+				log.Printf("%s failed; %v\n", r.Name, err)
+				return
+			}
+			if r.Trig != nil {
+				findAndTrig(*r.Trig, pkg, path)
+			}
+			return
 		}
-		return run(ctx, runTask, nil)
 	}
-
-	return nil
 }
 
-func run(ctx context.Context, task configuration.Rule, onStart *func()) error {
+func trig(rule configuration.Rule, pkg, path string) error {
+	ctx := getContext(rule.Name)
+
 	select {
 	case <-ctx.Done():
 		return nil
-	case <-time.After(time.Duration(task.Debounce) * time.Millisecond):
+	case <-time.After(time.Duration(rule.Debounce) * time.Millisecond):
 	}
 
+	cmd := strings.Replace(strings.Replace(rule.Command, "{PKG}", pkg, -1), "{FILE}", path, -1)
+	return run(ctx, nil, cmd)
+}
+
+func run(ctx context.Context, onStart *func(), command string) error {
 	if onStart != nil {
 		(*onStart)()
 	}
 
-	command := strings.Split(task.Command, " ")[0]
-	args := strings.Split(task.Command, " ")[1:]
-	cmd := exec.Command(command, args...)
+	if !config.NoTrace {
+		fmt.Printf("\x1b[38;5;239m[%s]\x1b[0m \x1b[38;5;243m%s\x1b[0m\n", time.Now().Format("15:04:05"), command)
+	}
+	cmd := exec.Command("bash", "-c", command)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -147,7 +194,7 @@ func run(ctx context.Context, task configuration.Rule, onStart *func()) error {
 	}()
 
 	err = cmd.Wait()
-	if err != nil {
+	if err != nil && ctx.Err() == nil {
 		return err
 	}
 
