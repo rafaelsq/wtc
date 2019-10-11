@@ -35,78 +35,17 @@ func getContext(label string) context.Context {
 	return ctx
 }
 
-type Task struct {
-	name  string
-	match *regexp.Regexp
-	cmd   []string
-	fn    func(Task, string, string) error
-}
-
-func simpleTask(task Task, _, _ string) error {
-	return run(getContext(task.name), nil, task.cmd[0], task.cmd[1:]...)
-}
-
-var buildCMD = "-mod=vendor -o app main.go"
-var runCMD = "./app"
-
 func main() {
 	yamlFile, err := ioutil.ReadFile("wtc.yaml")
 	if err != nil {
-		if len(os.Args) > 1 {
-			buildCMD = os.Args[1]
-			if len(os.Args) > 2 {
-				runCMD = os.Args[2]
-			}
-		}
-		config = configuration.Config{
-			Build: buildCMD,
-			Run:   runCMD,
-			Rules: []configuration.Rule{
-				configuration.Rule{
-					Name:     "Test",
-					Regex:    `_test\.go$`,
-					Ignore:   "/vendor/",
-					Debounce: 500,
-					Command:  "test -mod=vendor -cover",
-				},
-			},
-		}
-	} else {
-		err = yaml.Unmarshal(yamlFile, &config)
-		if err != nil {
-			log.Fatalf("Invalid wtc.yaml: %v", err)
-		}
+		log.Fatalf("No wtc.yaml found")
 	}
-
-	fmt.Println(config)
+	err = yaml.Unmarshal(yamlFile, &config)
+	if err != nil {
+		log.Fatalf("Invalid wtc.yaml: %v", err)
+	}
 
 	dir, _ := os.Getwd()
-
-	isTest := regexp.MustCompile(config.Test().Regex)
-	tasks := []Task{
-		{"run", regexp.MustCompile(`\.go$`), nil, func(t Task, _, file string) error {
-			if isTest.MatchString(file) {
-				return nil
-			}
-
-			return buildNRun(getContext(t.name))
-		}},
-		{"gqlgen", regexp.MustCompile("schema.graphql$"), []string{"go", "run", "github.com/99designs/gqlgen"}, simpleTask},
-		{"generate", regexp.MustCompile("pkg/iface/"), []string{"go", "generate", "./..."}, simpleTask},
-		{"proto", regexp.MustCompile(".proto$"), []string{"make", "proto"}, simpleTask},
-		{"test", isTest, nil, func(t Task, pkg, _ string) error {
-			log := func() {
-				fmt.Printf("\x1b[38;5;239m[%s]\x1b[0m \x1b[38;5;2mTesting\x1b[0m %s/...\n",
-					time.Now().Format("15:04:05"), pkg[len(dir):])
-			}
-			return run(getContext(t.name), &log, "go", append(strings.Split(config.Test().Command,
-				" "), pkg)...)
-		}},
-		{"lint", regexp.MustCompile(`\.go$`), nil, func(t Task, pkg, _ string) error {
-			_ = run(getContext(t.name), nil, "golangci-lint", "run", pkg)
-			return nil
-		}},
-	}
 
 	contexts = make(map[string]context.CancelFunc)
 
@@ -128,16 +67,17 @@ func main() {
 		pkg := strings.Join(pieces[:len(pieces)-1], "/")
 
 		// ignore
-		if strings.HasPrefix(pkg, dir+config.Test().Ignore) || strings.HasPrefix(pkg, dir+"/.git") {
+		if strings.HasPrefix(pkg, dir+"/.git") {
 			continue
 		}
 
-		for _, task := range tasks {
-			task := task
-			if task.match.MatchString(path) {
+		for _, rule := range config.Rules {
+			task := rule
+			match := regexp.MustCompile(task.Regex)
+			if match.MatchString(path) {
 				go func() {
-					if err := task.fn(task, pkg, path); err != nil {
-						log.Printf("%s failed; %v\n", task.name, err)
+					if err := run(getContext(task.Name), task, nil); err != nil {
+						log.Printf("%s failed; %v\n", task.Name, err)
 					}
 				}()
 			}
@@ -150,35 +90,43 @@ func buildNRun(ctx context.Context) error {
 	print := func() {
 		fmt.Printf("\x1b[38;5;239m[%s]\x1b[0m \x1b[38;5;1mBuilding...\x1b[0m\n", start.Format("15:04:05"))
 	}
-
-	err := run(ctx, &print, "go", append([]string{"build"}, strings.Split(config.Build, " ")...)...)
+	buildTask := configuration.Rule{
+		Name:     "run",
+		Debounce: 500,
+		Command:  config.Build,
+	}
+	err := run(ctx, buildTask, &print)
 	if err != nil {
 		return fmt.Errorf("build failed; %w", err)
 	}
 
 	if ctx.Err() == nil {
-		fmt.Printf("\x1b[38;5;239m[%s]\x1b[0m \x1b[38;5;243mBuilded %s\x1b[0m\n", time.Now().Format("15:04:05"),
+		fmt.Printf("\x1b[38;5;239m[%s]\x1b[0m \x1b[38;5;243mBuilt %s\x1b[0m\n", time.Now().Format("15:04:05"),
 			time.Since(start))
-		return run(ctx, nil, strings.Split(config.Run, " ")[0], strings.Split(config.Run, " ")[1:]...)
+		runTask := configuration.Rule{
+			Name:     "run",
+			Debounce: 500,
+			Command:  config.Run,
+		}
+		return run(ctx, runTask, nil)
 	}
 
 	return nil
 }
 
-func run(ctx context.Context, onStart *func(), command string, args ...string) error {
+func run(ctx context.Context, task configuration.Rule, onStart *func()) error {
 	select {
 	case <-ctx.Done():
 		return nil
-	case <-time.After(time.Duration(config.Test().Debounce) * time.Millisecond):
+	case <-time.After(time.Duration(task.Debounce) * time.Millisecond):
 	}
 
 	if onStart != nil {
 		(*onStart)()
 	}
 
-	fmt.Println(command)
-	fmt.Println(args)
-
+	command := strings.Split(task.Command, " ")[0]
+	args := strings.Split(task.Command, " ")[1:]
 	cmd := exec.Command(command, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

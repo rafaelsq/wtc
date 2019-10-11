@@ -13,12 +13,3 @@ type Rule struct {
 	Debounce int    `yaml:"debounce"`
 	Command  string `yaml:"command"`
 }
-
-func (c *Config) Test() *Rule {
-	for _, rule := range c.Rules {
-		if rule.Name == "Test" {
-			return &rule
-		}
-	}
-	panic("Must have a rule named Test")
-}
