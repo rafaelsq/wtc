@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/rafaelsq/wtc/configuration"
@@ -49,19 +50,22 @@ func main() {
 	config = configuration.Config{
 		Debounce: 300,
 		Ignore:   &[]string{`\.git/`}[0],
-		Rules:    []configuration.Rule{},
+		Rules:    []*configuration.Rule{},
 	}
 
 	yamlFile, err := ioutil.ReadFile("wtc.yaml")
 	if err != nil {
+		yamlFile, err = ioutil.ReadFile(".wtc.yaml")
+	}
+	if err != nil {
 		config.Trig = &[]string{"build"}[0]
-		config.Rules = append(config.Rules, configuration.Rule{
+		config.Rules = append(config.Rules, &configuration.Rule{
 			Name:    "run",
 			Match:   `^$`,
 			Command: runCMD,
 		})
 
-		config.Rules = append(config.Rules, configuration.Rule{
+		config.Rules = append(config.Rules, &configuration.Rule{
 			Name:     "build",
 			Match:    `\.go$`,
 			Debounce: config.Debounce,
@@ -70,7 +74,7 @@ func main() {
 			Trig:     &[]string{"run"}[0],
 		})
 
-		config.Rules = append(config.Rules, configuration.Rule{
+		config.Rules = append(config.Rules, &configuration.Rule{
 			Name:     "test",
 			Match:    `_test\.go$`,
 			Debounce: config.Debounce,
@@ -98,15 +102,16 @@ func main() {
 	}
 	defer notify.Stop(c)
 
+	dir, err := os.Getwd()
+	if err != nil {
+		log.Fatal(err)
+	}
 	if config.Trig != nil {
-		go func() {
-			dir, _ := os.Getwd()
-			findAndTrig(*config.Trig, dir, dir)
-		}()
+		go findAndTrig(*config.Trig, "./", "./")
 	}
 	for ei := range c {
 		path := ei.Path()
-		pieces := strings.Split(path, "/")
+		pieces := strings.Split("."+strings.Split(path, dir)[1], "/")
 		pkg := strings.Join(pieces[:len(pieces)-1], "/")
 
 		// ignore
@@ -125,12 +130,8 @@ func main() {
 			if regexp.MustCompile(rule.Match).MatchString(path) {
 				go func() {
 					if err := trig(rule, pkg, path); err != nil {
-						log.Printf("%s failed; %v\n", rule.Name, err)
-						return
-					}
-
-					if rule.Trig != nil {
-						findAndTrig(*rule.Trig, pkg, path)
+						fmt.Printf("\033[30;1m[%s] \033[31;1m[%s failed]\033[0m \033[30;1m%s\033[0m\n",
+							time.Now().Format("15:04:05"), rule.Name, err)
 					}
 				}()
 			}
@@ -142,18 +143,15 @@ func findAndTrig(key, pkg, path string) {
 	for _, r := range config.Rules {
 		if r.Name == key {
 			if err := trig(r, pkg, path); err != nil {
-				log.Printf("%s failed; %v\n", r.Name, err)
-				return
-			}
-			if r.Trig != nil {
-				findAndTrig(*r.Trig, pkg, path)
+				fmt.Printf("\033[30;1m[%s] \033[31;1m[%s failed]\033[0m \033[30;1m%s\033[0m\n",
+					time.Now().Format("15:04:05"), r.Name, err)
 			}
 			return
 		}
 	}
 }
 
-func trig(rule configuration.Rule, pkg, path string) error {
+func trig(rule *configuration.Rule, pkg, path string) error {
 	ctx := getContext(rule.Name)
 
 	select {
@@ -163,18 +161,29 @@ func trig(rule configuration.Rule, pkg, path string) error {
 	}
 
 	cmd := strings.Replace(strings.Replace(rule.Command, "{PKG}", pkg, -1), "{FILE}", path, -1)
-	return run(ctx, nil, cmd)
-}
-
-func run(ctx context.Context, onStart *func(), command string) error {
-	if onStart != nil {
-		(*onStart)()
-	}
 
 	if !config.NoTrace {
-		fmt.Printf("\x1b[38;5;239m[%s]\x1b[0m \x1b[38;5;243m%s\x1b[0m\n", time.Now().Format("15:04:05"), command)
+		fmt.Printf("\033[30;1m[%s] \033[32;1m[%s]\033[0m \033[30;3m%s\033[0m\n",
+			time.Now().Format("15:04:05"), rule.Name, cmd)
 	}
-	cmd := exec.Command("bash", "-c", command)
+
+	err := run(ctx, cmd)
+	if err == context.Canceled {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	if rule.Trig != nil {
+		findAndTrig(*rule.Trig, pkg, path)
+	}
+
+	return nil
+}
+
+func run(ctx context.Context, command string) error {
+	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -183,18 +192,12 @@ func run(ctx context.Context, onStart *func(), command string) error {
 		return err
 	}
 
-	done := make(chan struct{})
-	defer close(done)
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = cmd.Process.Kill()
-		case <-done:
-		}
-	}()
-
 	err = cmd.Wait()
-	if err != nil && ctx.Err() == nil {
+	if err != nil {
+		if uint32(cmd.ProcessState.Sys().(syscall.WaitStatus)) == uint32(syscall.SIGKILL) {
+			return context.Canceled
+		}
+
 		return err
 	}
 

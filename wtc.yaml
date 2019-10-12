@@ -1,12 +1,7 @@
 debounce: 100
 ignore: "\\.git/"
-trig: build
+trig: install
 rules:
-  - name: build
+  - name: install
     match: ".go$"
-    ignore: "_test.go$"
-    command: "go build"
-    trig: _install
-  - name: _install
-    match: "^$"
     command: "go install"

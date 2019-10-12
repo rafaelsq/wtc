@@ -4,7 +4,7 @@ type Config struct {
 	NoTrace  bool    `yaml:"no_trace"`
 	Ignore   *string `yaml:"ignore"`
 	Debounce int     `yaml:"debounce"`
-	Rules    []Rule  `yaml:"rules"`
+	Rules    []*Rule `yaml:"rules"`
 	Trig     *string `yaml:"trig"`
 }
 

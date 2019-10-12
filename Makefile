@@ -1,0 +1,2 @@
+watch:
+	@go run *.go
