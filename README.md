@@ -9,14 +9,32 @@ A simple watch files utility
 You can use it to watch files and run any command.  
 It is not necessary to be a Golang project.  
 
+## Installation
+
 ```bash
 $ go get -u github.com/rafaelsq/wtc
+```
+
+## Usage
+
+### Quickstart
+
+If you run `wtc [flags] "<build-cmd>" "<run-cmd>"`, it will replace default `command`s above. 
+
+#### Example
+
+```
 $ cd my_go_project
 $ wtc "go build main.go" "./my_go_project"
 ```
 
+### Using a configuration file
+
 You can create an Yaml file with your rules.
-Default;
+If you create your own `.wtc.yaml` or `wtc.yaml`, no default rules will exists.
+
+Default:
+
 ```yaml
 no_trace: false
 debounce: 300
@@ -36,5 +54,3 @@ rules:
     command: "go test -cover {PKG}"
 ```
 
-If you run `wtc "<build-cmd>" "<run-cmd>"`, it will replace default `command`s above.  
-If you create your own `.wtc.yaml` or `wtc.yaml`, no default rules will exists.

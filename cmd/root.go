@@ -20,12 +20,11 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "wtc",
+	Use:   "wtc [command] [arguments]",
 	Short: "Watch files",
 	Long: `Watch files
 If you have a .wtc.yaml or wtc.yaml file it will be used instead of the arguments`,
-	Args:      cobra.MaximumNArgs(2),
-	ValidArgs: []string{"abc", "123"},
+	Args: cobra.MaximumNArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(args) > 0 {
 			buildCMDArg = args[0]
@@ -46,8 +45,8 @@ var runCMDArg string = "./$(basename `pwd`)"
 func init() {
 	var flags = rootCmd.PersistentFlags()
 	flags.IntVarP(&debounceFlag, "debounce", "d", 300, "(default 300)")
-	flags.StringVarP(&ignoreFlag, "ignore", "i", ".git", "regex to be used(default .git)")
-	flags.BoolVar(&noTraceFlag, "no_trace", false, "o not show the command being executed(default False)")
+	flags.StringVarP(&ignoreFlag, "ignore", "i", ".git", "regex to be used (default .git)")
+	flags.BoolVar(&noTraceFlag, "no_trace", false, "o not show the command being executed (default false)")
 }
 
 func Execute() {
