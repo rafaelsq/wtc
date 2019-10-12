@@ -45,8 +45,8 @@ var runCMDArg string = "./$(basename `pwd`)"
 
 func init() {
 	var flags = rootCmd.PersistentFlags()
-	flags.IntVarP(&debounceFlag, "debounce", "d", 0, "(default 0)")
-	flags.StringVarP(&ignoreFlag, "ignore", "i", "", "regex to be used(default None)")
+	flags.IntVarP(&debounceFlag, "debounce", "d", 300, "(default 300)")
+	flags.StringVarP(&ignoreFlag, "ignore", "i", ".git", "regex to be used(default .git)")
 	flags.BoolVar(&noTraceFlag, "no_trace", false, "o not show the command being executed(default False)")
 }
 
