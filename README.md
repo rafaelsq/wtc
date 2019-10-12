@@ -5,7 +5,7 @@
 [![GoDoc](https://godoc.org/github.com/rafaelsq/wtc?status.svg)](https://godoc.org/github.com/rafaelsq/wtc)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-**Watch is a simple watch files utility**
+**Watch is a simple watch files utility**  
 You can use it to watch files and run any command.  
 It is not necessary to be a Golang project.  
 
