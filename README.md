@@ -17,6 +17,20 @@ $ go get -u github.com/rafaelsq/wtc
 
 ## Usage
 
+```
+Watch files
+If you have a .wtc.yaml or wtc.yaml file it will be used instead of the arguments
+
+Usage:
+  wtc [command] [arguments] [flags]
+
+Flags:
+  -d, --debounce int     (default 300)
+  -h, --help            help for wtc
+  -i, --ignore string   regex to be used (default "\\.git")
+      --no_trace        do not show the command being executed
+```
+
 ### Quickstart
 
 If you run `wtc [flags] "<build-cmd>" "<run-cmd>"`, it will replace default `command`s above. 
