@@ -21,7 +21,6 @@ jobs:
                 env:
                     GOPATH: /home/runner/work/rafaelsq/wtc
             - name: Test
-                run: |
-                    go test -race -cover ./...
+                run: go test -race -cover ./...
                 env:
                     GOPATH: /home/runner/work/rafaelsq/wtc
