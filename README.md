@@ -12,7 +12,7 @@ It is not necessary to be a Golang project.
 ```bash
 $ go get -u github.com/rafaelsq/wtc
 $ cd my_go_project
-$ wtc "go build main.go" "./my_go_project"
+$ wtc -build "go build main.go" -run "./my_go_project"
 ```
 
 You can create an Yaml file with your rules.
@@ -36,5 +36,5 @@ rules:
     command: "go test -cover {PKG}"
 ```
 
-If you run `wtc "<build-cmd>" "<run-cmd>"`, it will replace default `command`s above.  
+If you run `wtc -build "<build-cmd>" -run "<run-cmd>"`, it will replace default `command`s above.  
 If you create your own `.wtc.yaml` or `wtc.yaml`, no default rules will exists.

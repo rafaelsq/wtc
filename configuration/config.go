@@ -1,5 +1,6 @@
 package configuration
 
+// Config defines the options for watching files
 type Config struct {
 	NoTrace  bool    `yaml:"no_trace"`
 	Ignore   *string `yaml:"ignore"`
@@ -8,6 +9,7 @@ type Config struct {
 	Trig     *string `yaml:"trig"`
 }
 
+// Rule defines the options for running commands
 type Rule struct {
 	Name     string  `yaml:"name"`
 	Match    string  `yaml:"match"`
