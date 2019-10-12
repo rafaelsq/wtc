@@ -38,3 +38,5 @@ rules:
 
 If you run `wtc "<build-cmd>" "<run-cmd>"`, it will replace default `command`s above.  
 If you create your own `.wtc.yaml` or `wtc.yaml`, no default rules will exists.
+
+If you run `make` on this project, for each time that the source code is changed, the source code will run a `go install`automatically.
