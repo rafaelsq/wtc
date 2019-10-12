@@ -46,7 +46,7 @@ func init() {
 	var flags = rootCmd.PersistentFlags()
 	flags.IntVarP(&debounceFlag, "debounce", "d", 300, "(default 300)")
 	flags.StringVarP(&ignoreFlag, "ignore", "i", ".git", "regex to be used (default .git)")
-	flags.BoolVar(&noTraceFlag, "no_trace", false, "o not show the command being executed (default false)")
+	flags.BoolVar(&noTraceFlag, "no_trace", false, "do not show the command being executed (default false)")
 }
 
 func Execute() {
