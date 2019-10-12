@@ -116,7 +116,7 @@ func main() {
 
 		// ignore
 		if config.Ignore != nil {
-			if regexp.MustCompile(*config.Ignore).MatchString(path) {
+			if retrieveRegexp(*config.Ignore).MatchString(path) {
 				continue
 			}
 		}
@@ -124,10 +124,10 @@ func main() {
 		for _, rule := range config.Rules {
 			rule := rule
 
-			if rule.Ignore != nil && regexp.MustCompile(*rule.Ignore).MatchString(path) {
+			if rule.Ignore != nil && retrieveRegexp(*rule.Ignore).MatchString(path) {
 				continue
 			}
-			if regexp.MustCompile(rule.Match).MatchString(path) {
+			if retrieveRegexp(rule.Match).MatchString(path) {
 				go func() {
 					if err := trig(rule, pkg, path); err != nil {
 						fmt.Printf("\033[30;1m[%s] \033[31;1m[%s failed]\033[0m \033[30;1m%s\033[0m\n",
@@ -137,6 +137,20 @@ func main() {
 			}
 		}
 	}
+}
+
+var regexpMutex = &sync.Mutex{}
+var regexpMap = map[string]*regexp.Regexp{}
+
+func retrieveRegexp(pattern string) *regexp.Regexp {
+	regexpMutex.Lock()
+	var result, ok = regexpMap[pattern]
+	if !ok {
+		result = regexp.MustCompile(pattern)
+		regexpMap[pattern] = result
+	}
+	regexpMutex.Unlock()
+	return result
 }
 
 func findAndTrig(key, pkg, path string) {
