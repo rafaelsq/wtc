@@ -5,22 +5,40 @@
 [![GoDoc](https://godoc.org/github.com/rafaelsq/wtc?status.svg)](https://godoc.org/github.com/rafaelsq/wtc)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/rafaelsq/wtc/blob/master/LICENSE)
 
-**Watch is a simple watch files utility**  
-You can use it to watch files and run any command.  
-It is not necessary to be a Golang project.  
+Watch is a simple watch files utility you can use to watch files and run commands.  
+Although the utility is written in [Go](https://golang.org/), you can use it for projects written in any programming language.
+
+## Prerequisites
+
+Before you begin, ensure you have installed the latest version of Go. See the [Go documentation](https://golang.org/doc/install) for details.
 
 ## How to install
 
-```bash
-$ go get -u github.com/rafaelsq/wtc
-$ cd my_go_project
-$ wtc -build "go build main.go" -run "./my_go_project"
-```
+You can install Watch as follows:
+
+1. Install the Watch directory:
+   
+   ```bash
+   $ go get -u github.com/rafaelsq/wtc
+   ```
+
+2. Change directory to the project where you want to run Watch:
+  
+  ```bash
+  $ cd my_go_project
+  ```
+  
+3. Run the following to build the utility:
+
+  ```bash
+  $ wtc -build "go build main.go" -run "./my_go_project"
+  ```
 
 ## How to use
 
-You can create an Yaml file with your rules.
-Default;
+You can configure Watch by creating an YAML file with your own rules.
+
+The default is:
 
 ```yaml
 no_trace: false
@@ -41,5 +59,6 @@ rules:
     command: "go test -cover {PKG}"
 ```
 
-If you run `wtc -build "<build-cmd>" -run "<run-cmd>"`, it will replace default `command`s above.  
-If you create your own `.wtc.yaml` or `wtc.yaml`, no default rules will exists.
+> **_Note:_** If you run `wtc -build "<build-cmd>" -run "<run-cmd>"`, the utility replaces the default commands above.  
+
+If you create your own `.wtc.yaml` or `wtc.yaml`, no default rules will exist.
