@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -37,15 +38,9 @@ func getContext(label string) context.Context {
 }
 
 func main() {
-	buildCMD := "go build"
-	runCMD := "./$(basename `pwd`)"
-
-	if len(os.Args) > 1 {
-		buildCMD = os.Args[1]
-		if len(os.Args) > 2 {
-			runCMD = os.Args[2]
-		}
-	}
+	buildCMD := flag.String("build", "go build", "specify build command")
+	runCMD := flag.String("run", "./$(basename `pwd`)", "specify run command")
+	flag.Parse()
 
 	config = configuration.Config{
 		Debounce: 300,
@@ -53,38 +48,8 @@ func main() {
 		Rules:    []*configuration.Rule{},
 	}
 
-	yamlFile, err := ioutil.ReadFile("wtc.yaml")
-	if err != nil {
-		yamlFile, err = ioutil.ReadFile(".wtc.yaml")
-	}
-	if err != nil {
-		config.Trig = &[]string{"build"}[0]
-		config.Rules = append(config.Rules, &configuration.Rule{
-			Name:    "run",
-			Match:   `^$`,
-			Command: runCMD,
-		})
-
-		config.Rules = append(config.Rules, &configuration.Rule{
-			Name:     "build",
-			Match:    `\.go$`,
-			Debounce: config.Debounce,
-			Ignore:   &[]string{`_test\.go$`}[0],
-			Command:  buildCMD,
-			Trig:     &[]string{"run"}[0],
-		})
-
-		config.Rules = append(config.Rules, &configuration.Rule{
-			Name:     "test",
-			Match:    `_test\.go$`,
-			Debounce: config.Debounce,
-			Command:  "go test -cover {PKG}",
-		})
-	} else {
-		err = yaml.Unmarshal(yamlFile, &config)
-		if err != nil {
-			log.Fatalf("Invalid wtc.yaml: %v", err)
-		}
+	if err := genConfig(&config, *buildCMD, *runCMD); err != nil {
+		log.Fatal(err)
 	}
 
 	for _, rule := range config.Rules {
@@ -137,6 +102,54 @@ func main() {
 			}
 		}
 	}
+}
+
+func findFile() ([]byte, error) {
+	if _, err := os.Stat("wtc.yaml"); err == nil {
+		return ioutil.ReadFile("wtc.yaml")
+	}
+
+	if _, err := os.Stat(".wtc.yaml"); err == nil {
+		return ioutil.ReadFile(".wtc.yaml")
+	}
+
+	return nil, nil
+}
+
+func genConfig(config *configuration.Config, buildCMD, runCMD string) error {
+	yamlFile, err := findFile()
+	if err != nil {
+		return err
+	}
+
+	if yamlFile == nil {
+		config.Trig = &[]string{"build"}[0]
+		config.Rules = append(config.Rules, &configuration.Rule{
+			Name:    "run",
+			Match:   `^$`,
+			Command: runCMD,
+		})
+
+		config.Rules = append(config.Rules, &configuration.Rule{
+			Name:     "build",
+			Match:    `\.go$`,
+			Debounce: config.Debounce,
+			Ignore:   &[]string{`_test\.go$`}[0],
+			Command:  buildCMD,
+			Trig:     &[]string{"run"}[0],
+		})
+
+		config.Rules = append(config.Rules, &configuration.Rule{
+			Name:     "test",
+			Match:    `_test\.go$`,
+			Debounce: config.Debounce,
+			Command:  "go test -cover {PKG}",
+		})
+
+		return nil
+	}
+
+	return yaml.Unmarshal(yamlFile, &config)
 }
 
 var regexpMutex = &sync.Mutex{}
