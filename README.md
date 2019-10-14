@@ -12,53 +12,66 @@ Although the utility is written in [Go](https://golang.org/), you can use it for
 
 Before you begin, ensure you have installed the latest version of Go. See the [Go documentation](https://golang.org/doc/install) for details.
 
-## How to install
+## Install
 
-You can install Watch as follows:
+`$ go get -u github.com/rafaelsq/wtc`
 
-1. Install the Watch directory:
-   
-   ```bash
-   $ go get -u github.com/rafaelsq/wtc
-   ```
+## Usage
 
-2. Change directory to the project where you want to run Watch:
-  
-  ```bash
-  $ cd my_go_project
-  ```
-  
-3. Run the following to build the utility:
+```
+USAGE:
+$ wtc [[flags] regex command]
 
-  ```bash
-  $ wtc -build "go build main.go" -run "./my_go_project"
-  ```
+If [.]wtc.yaml exists, it will be used.
 
-## How to use
+FLAGS:
+  -debounce int
+    	global debounce (default 300)
+  -ignore string
+    	regex
+  -no-trace
+    	disable messages.
+```
+
+### Example
+
+`wtc "_test\.go$" "go test -cover {PKG}"`
+
+
+## Usage with [.]wtc.yaml 
 
 You can configure Watch by creating an YAML file with your own rules.
 
-The default is:
+Example:
 
 ```yaml
 no_trace: false
-debounce: 300
+debounce: 300  # if rule has no debounce, this will be used instead
 ignore: "\\.git/"
-trig: build
+trig: buildNRun  # will run on start
 rules:
-  - name: build
-    match: ".go$"
+  - name: buildNRun
+    match: "\\.go$"
     ignore: "_test\\.go$"
     command: "go build"
     trig: run
   - name: run
-    match: "^$"
     command: "./$(basename `pwd`)"
   - name: test
     match: "_test\\.go$"
     command: "go test -cover {PKG}"
 ```
 
-> **_Note:_** If you run `wtc -build "<build-cmd>" -run "<run-cmd>"`, the utility replaces the default commands above.  
 
-If you create your own `.wtc.yaml` or `wtc.yaml`, no default rules will exist.
+## Dev
+
+`$ make` will watch for changes and run `go install`
+```yaml
+debounce: 100
+ignore: "\\.git/"
+trig: install
+rules:
+  - name: install
+    match: "\\.go$"
+    command: "go install"
+```

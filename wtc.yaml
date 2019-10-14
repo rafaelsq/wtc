@@ -3,5 +3,5 @@ ignore: "\\.git/"
 trig: install
 rules:
   - name: install
-    match: ".go$"
+    match: "\\.go$"
     command: "go install"

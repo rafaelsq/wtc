@@ -14,12 +14,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/rafaelsq/wtc/configuration"
 	"github.com/rjeczalik/notify"
 	yaml "gopkg.in/yaml.v2"
 )
-
-var config configuration.Config
 
 var contexts map[string]context.CancelFunc
 var ctxmutex sync.Mutex
@@ -37,27 +34,45 @@ func getContext(label string) context.Context {
 	return ctx
 }
 
+var config *Config
+
 func main() {
-	buildCMD := flag.String("build", "go build", "specify build command")
-	runCMD := flag.String("run", "./$(basename `pwd`)", "specify run command")
+	flag.CommandLine.Usage = func() {
+		fmt.Fprintf(
+			flag.CommandLine.Output(),
+			"USAGE:\n$ wtc [[flags] regex command]\n\n"+
+				"If [.]wtc.yaml exists, it will be used.\n\n"+
+				"FLAGS:\n",
+		)
+		flag.PrintDefaults()
+	}
+
+	config = &Config{Debounce: 300}
+
+	flag.IntVar(&config.Debounce, "debounce", 300, "global debounce")
+	flag.StringVar(&config.Ignore, "ignore", "", "regex")
+	flag.BoolVar(&config.NoTrace, "no-trace", false, "disable messages.")
+
 	flag.Parse()
 
-	config = configuration.Config{
-		Debounce: 300,
-		Ignore:   &[]string{`\.git/`}[0],
-		Rules:    []*configuration.Rule{},
-	}
-
-	if err := genConfig(&config, *buildCMD, *runCMD); err != nil {
+	if has, err := readConfig(config); err != nil {
 		log.Fatal(err)
+	} else if !has && flag.NArg() < 2 {
+		fmt.Fprintf(os.Stderr, "No [.]wtc.yaml or valid command provided.\n")
+		flag.CommandLine.Usage()
+		return
+	} else {
+		config.Rules = append(config.Rules, &Rule{
+			Name:    "run",
+			Match:   flag.Arg(0),
+			Command: flag.Arg(1),
+		})
 	}
 
-	for _, rule := range config.Rules {
-		if rule.Debounce == 0 {
-			rule.Debounce = config.Debounce
-		}
-	}
+	start(config)
+}
 
+func start(config *Config) {
 	contexts = make(map[string]context.CancelFunc)
 
 	c := make(chan notify.EventInfo)
@@ -80,8 +95,8 @@ func main() {
 		pkg := strings.Join(pieces[:len(pieces)-1], "/")
 
 		// ignore
-		if config.Ignore != nil {
-			if retrieveRegexp(*config.Ignore).MatchString(path) {
+		if config.Ignore != "" {
+			if retrieveRegexp(config.Ignore).MatchString(path) {
 				continue
 			}
 		}
@@ -89,10 +104,11 @@ func main() {
 		for _, rule := range config.Rules {
 			rule := rule
 
-			if rule.Ignore != nil && retrieveRegexp(*rule.Ignore).MatchString(path) {
+			if rule.Ignore != "" && retrieveRegexp(rule.Ignore).MatchString(path) {
 				continue
 			}
-			if retrieveRegexp(rule.Match).MatchString(path) {
+
+			if rule.Match != "" && retrieveRegexp(rule.Match).MatchString(path) {
 				go func() {
 					if err := trig(rule, pkg, path); err != nil {
 						fmt.Printf("\033[30;1m[%s] \033[31;1m[%s failed]\033[0m \033[30;1m%s\033[0m\n",
@@ -116,40 +132,17 @@ func findFile() ([]byte, error) {
 	return nil, nil
 }
 
-func genConfig(config *configuration.Config, buildCMD, runCMD string) error {
+func readConfig(config *Config) (bool, error) {
 	yamlFile, err := findFile()
 	if err != nil {
-		return err
+		return false, err
 	}
 
-	if yamlFile == nil {
-		config.Trig = &[]string{"build"}[0]
-		config.Rules = append(config.Rules, &configuration.Rule{
-			Name:    "run",
-			Match:   `^$`,
-			Command: runCMD,
-		})
-
-		config.Rules = append(config.Rules, &configuration.Rule{
-			Name:     "build",
-			Match:    `\.go$`,
-			Debounce: config.Debounce,
-			Ignore:   &[]string{`_test\.go$`}[0],
-			Command:  buildCMD,
-			Trig:     &[]string{"run"}[0],
-		})
-
-		config.Rules = append(config.Rules, &configuration.Rule{
-			Name:     "test",
-			Match:    `_test\.go$`,
-			Debounce: config.Debounce,
-			Command:  "go test -cover {PKG}",
-		})
-
-		return nil
+	if len(yamlFile) != 0 {
+		return true, yaml.Unmarshal(yamlFile, &config)
 	}
 
-	return yaml.Unmarshal(yamlFile, &config)
+	return false, nil
 }
 
 var regexpMutex = &sync.Mutex{}
@@ -178,13 +171,18 @@ func findAndTrig(key, pkg, path string) {
 	}
 }
 
-func trig(rule *configuration.Rule, pkg, path string) error {
+func trig(rule *Rule, pkg, path string) error {
 	ctx := getContext(rule.Name)
+
+	debounce := config.Debounce
+	if rule.Debounce != nil {
+		debounce = *rule.Debounce
+	}
 
 	select {
 	case <-ctx.Done():
 		return nil
-	case <-time.After(time.Duration(rule.Debounce) * time.Millisecond):
+	case <-time.After(time.Duration(debounce) * time.Millisecond):
 	}
 
 	cmd := strings.Replace(strings.Replace(rule.Command, "{PKG}", pkg, -1), "{FILE}", path, -1)
