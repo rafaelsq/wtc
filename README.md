@@ -1,18 +1,20 @@
-# Watch
+# WTC
 
 [![Actions Status](https://github.com/rafaelsq/wtc/workflows/tests/badge.svg)](https://github.com/rafaelsq/wtc/actions)
 [![Go Report Card](https://goreportcard.com/badge/github.com/rafaelsq/wtc)](https://goreportcard.com/report/github.com/rafaelsq/wtc)
 [![GoDoc](https://godoc.org/github.com/rafaelsq/wtc?status.svg)](https://godoc.org/github.com/rafaelsq/wtc)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/rafaelsq/wtc/blob/master/LICENSE)
 
-Watch is a simple watch files utility you can use to watch files and run commands.  
-Although the utility is written in [Go](https://golang.org/), you can use it for projects written in any programming language.
-
-## Prerequisites
-
-Before you begin, ensure you have installed the latest version of Go. See the [Go documentation](https://golang.org/doc/install) for details.
+WTC is a simple utility you can use to watch files and execute commands.  
 
 ## Install
+
+Latest Release  
+`$ curl -sfL --silent https://github.com/rafaelsq/wtc/releases/latest/download/wtc.linux64.tar.gz | tar -xzv && mv wtc $(go env GOPATH)/bin/`
+
+## Compile from source
+
+Before you begin, ensure you have installed the latest version of Go. See the [Go documentation](https://golang.org/doc/install) for details.
 
 `$ go get -u github.com/rafaelsq/wtc`
 
@@ -40,7 +42,7 @@ FLAGS:
 
 ## Usage with [.]wtc.yaml 
 
-You can configure Watch by creating an YAML file with your own rules.
+You can configure WTC by creating an YAML file with your own rules.
 
 Example:
 
