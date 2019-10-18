@@ -208,24 +208,38 @@ func trig(rule *Rule, pkg, path string) error {
 }
 
 func run(ctx context.Context, command string) error {
-	cmd := exec.CommandContext(ctx, "bash", "-c", command)
+	cmd := exec.Command("sh", "-c", command)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Env = os.Environ()
+
+	// ask Go to create a new Process Group for this process
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	err := cmd.Start()
 	if err != nil {
 		return err
 	}
 
-	err = cmd.Wait()
-	if err != nil {
-		if uint32(cmd.ProcessState.Sys().(syscall.WaitStatus)) == uint32(syscall.SIGKILL) {
-			return context.Canceled
+	done := make(chan struct{})
+	exit := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			// Process Group will use the same ID as this process.
+			// Kill the process group(minus)
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		case <-done:
 		}
+		close(exit)
+	}()
 
-		return err
+	err = cmd.Wait()
+	if err != nil && uint32(cmd.ProcessState.Sys().(syscall.WaitStatus)) == uint32(syscall.SIGKILL) {
+		err = context.Canceled
 	}
 
-	return nil
+	close(done)
+	<-exit
+	return err
 }
