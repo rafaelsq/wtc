@@ -211,6 +211,7 @@ func run(ctx context.Context, command string) error {
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	cmd.Env = os.Environ()
 
 	err := cmd.Start()
 	if err != nil {
