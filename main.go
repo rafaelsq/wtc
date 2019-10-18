@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/signal"
 	"regexp"
 	"strings"
 	"sync"
@@ -20,6 +21,7 @@ import (
 
 type contextWaitsKey struct{}
 
+var appContext context.Context
 var contexts map[string]context.CancelFunc
 var waits map[string]chan struct{}
 var ctxmutex sync.Mutex
@@ -37,7 +39,7 @@ func getContext(label string) context.Context {
 		waits[label] = make(chan struct{}, 1)
 	}
 
-	ctx = context.WithValue(context.Background(), contextWaitsKey{}, waits[label])
+	ctx = context.WithValue(appContext, contextWaitsKey{}, waits[label])
 	ctx, contexts[label] = context.WithCancel(ctx)
 
 	return ctx
@@ -82,6 +84,9 @@ func main() {
 }
 
 func start(config *Config) {
+	var cancelAll context.CancelFunc
+
+	appContext, cancelAll = context.WithCancel(context.Background())
 	contexts = make(map[string]context.CancelFunc)
 	waits = make(map[string]chan struct{})
 
@@ -90,7 +95,6 @@ func start(config *Config) {
 	if err := notify.Watch("./...", c, notify.All); err != nil {
 		log.Fatal(err)
 	}
-	defer notify.Stop(c)
 
 	dir, err := os.Getwd()
 	if err != nil {
@@ -99,32 +103,47 @@ func start(config *Config) {
 	if config.Trig != nil {
 		go findAndTrig(*config.Trig, "./", "./")
 	}
-	for ei := range c {
-		path := ei.Path()
-		pieces := strings.Split("."+strings.Split(path, dir)[1], "/")
-		pkg := strings.Join(pieces[:len(pieces)-1], "/")
 
-		// ignore
-		if config.Ignore != "" {
-			if retrieveRegexp(config.Ignore).MatchString(path) {
-				continue
+	exitSignal := make(chan os.Signal, 1)
+	signal.Notify(exitSignal, os.Interrupt)
+
+	for {
+		select {
+		case <-exitSignal:
+			notify.Stop(c)
+			cancelAll()
+			for _, rule := range config.Rules {
+				lock := getContext(rule.Name).Value(contextWaitsKey{}).(chan struct{})
+				lock <- struct{}{}
+				<-lock
 			}
-		}
+			return
+		case ei := <-c:
+			path := ei.Path()
+			pieces := strings.Split("."+strings.Split(path, dir)[1], "/")
+			pkg := strings.Join(pieces[:len(pieces)-1], "/")
 
-		for _, rule := range config.Rules {
-			rule := rule
-
-			if rule.Ignore != "" && retrieveRegexp(rule.Ignore).MatchString(path) {
-				continue
+			if config.Ignore != "" {
+				if retrieveRegexp(config.Ignore).MatchString(path) {
+					continue
+				}
 			}
 
-			if rule.Match != "" && retrieveRegexp(rule.Match).MatchString(path) {
-				go func() {
-					if err := trig(rule, pkg, path); err != nil {
-						fmt.Printf("\033[30;1m[%s] \033[31;1m[%s failed]\033[0m \033[30;1m%s\033[0m\n",
-							time.Now().Format("15:04:05"), rule.Name, err)
-					}
-				}()
+			for _, rule := range config.Rules {
+				rule := rule
+
+				if rule.Ignore != "" && retrieveRegexp(rule.Ignore).MatchString(path) {
+					continue
+				}
+
+				if rule.Match != "" && retrieveRegexp(rule.Match).MatchString(path) {
+					go func() {
+						if err := trig(rule, pkg, path); err != nil {
+							fmt.Printf("\033[30;1m[%s] \033[31;1m[%s failed]\033[0m \033[30;1m%s\033[0m\n",
+								time.Now().Format("15:04:05"), rule.Name, err)
+						}
+					}()
+				}
 			}
 		}
 	}
