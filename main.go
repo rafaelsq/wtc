@@ -18,7 +18,10 @@ import (
 	yaml "gopkg.in/yaml.v2"
 )
 
+type contextWaitsKey struct{}
+
 var contexts map[string]context.CancelFunc
+var waits map[string]chan struct{}
 var ctxmutex sync.Mutex
 
 func getContext(label string) context.Context {
@@ -30,7 +33,13 @@ func getContext(label string) context.Context {
 	}
 
 	var ctx context.Context
-	ctx, contexts[label] = context.WithCancel(context.Background())
+	if _, hasLock := waits[label]; !hasLock {
+		waits[label] = make(chan struct{}, 1)
+	}
+
+	ctx = context.WithValue(context.Background(), contextWaitsKey{}, waits[label])
+	ctx, contexts[label] = context.WithCancel(ctx)
+
 	return ctx
 }
 
@@ -74,6 +83,7 @@ func main() {
 
 func start(config *Config) {
 	contexts = make(map[string]context.CancelFunc)
+	waits = make(map[string]chan struct{})
 
 	c := make(chan notify.EventInfo)
 
@@ -185,6 +195,8 @@ func trig(rule *Rule, pkg, path string) error {
 	case <-time.After(time.Duration(debounce) * time.Millisecond):
 	}
 
+	ctx.Value(contextWaitsKey{}).(chan struct{}) <- struct{}{}
+
 	cmd := strings.Replace(strings.Replace(rule.Command, "{PKG}", pkg, -1), "{FILE}", path, -1)
 
 	if !config.NoTrace {
@@ -193,15 +205,18 @@ func trig(rule *Rule, pkg, path string) error {
 	}
 
 	err := run(ctx, cmd)
+	defer func() {
+		if err == nil && rule.Trig != nil {
+			findAndTrig(*rule.Trig, pkg, path)
+		}
+
+		<-ctx.Value(contextWaitsKey{}).(chan struct{})
+	}()
 	if err == context.Canceled {
 		return nil
 	}
 	if err != nil {
 		return err
-	}
-
-	if rule.Trig != nil {
-		findAndTrig(*rule.Trig, pkg, path)
 	}
 
 	return nil
