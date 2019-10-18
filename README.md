@@ -49,13 +49,16 @@ Example:
 no_trace: false
 debounce: 300  # if rule has no debounce, this will be used instead
 ignore: "\\.git/"
-trig: buildNRun  # will run on start
+trig: 
+	buildNRun  # will run on start
 rules:
   - name: buildNRun
     match: "\\.go$"
     ignore: "_test\\.go$"
     command: "go build"
-    trig: run
+    trig: 
+      run
+      test
   - name: run
     command: "./$(basename `pwd`)"
   - name: test

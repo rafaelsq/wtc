@@ -91,7 +91,7 @@ func start(config *Config) {
 		log.Fatal(err)
 	}
 	if config.Trig != nil {
-		go findAndTrig(*config.Trig, "./", "./")
+		go findAndTrig(config.Trig, "./", "./")
 	}
 
 	exitSignal := make(chan os.Signal, 1)
@@ -172,14 +172,16 @@ func retrieveRegexp(pattern string) *regexp.Regexp {
 	return result
 }
 
-func findAndTrig(key, pkg, path string) {
-	for _, r := range config.Rules {
-		if r.Name == key {
-			if err := trig(r, pkg, path); err != nil {
-				fmt.Printf("\033[30;1m[%s] \033[31;1m[%s failed]\033[0m \033[30;1m%s\033[0m\n",
-					time.Now().Format("15:04:05"), r.Name, err)
+func findAndTrig(key []string, pkg, path string) {
+	for _, s := range key {
+		for _, r := range config.Rules {
+			if r.Name == s {
+				if err := trig(r, pkg, path); err != nil {
+					fmt.Printf("\033[30;1m[%s] \033[31;1m[%s failed]\033[0m \033[30;1m%s\033[0m\n",
+						time.Now().Format("15:04:05"), r.Name, err)
+				}
+				return
 			}
-			return
 		}
 	}
 }
@@ -213,9 +215,7 @@ func trig(rule *Rule, pkg, path string) error {
 		return err
 	}
 
-	if rule.Trig != nil {
-		findAndTrig(*rule.Trig, pkg, path)
-	}
+	findAndTrig(rule.Trig, pkg, path)
 
 	return nil
 }
