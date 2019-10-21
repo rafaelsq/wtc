@@ -43,7 +43,7 @@ func main() {
 		fmt.Fprintf(
 			flag.CommandLine.Output(),
 			"USAGE:\n$ wtc [[flags] regex command]\n\n"+
-				"If [.]wtc.yaml exists, it will be used.\n\n"+
+				"If [.]wtc.y[a]ml exists, it will be used.\n\n"+
 				"FLAGS:\n",
 		)
 		flag.PrintDefaults()
@@ -90,9 +90,8 @@ func start(config *Config) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	if config.Trig != nil {
-		go findAndTrig(config.Trig, "./", "./")
-	}
+
+	go findAndTrig(config.Trig, "./", "./")
 
 	exitSignal := make(chan os.Signal, 1)
 	signal.Notify(exitSignal, os.Interrupt)
@@ -180,7 +179,7 @@ func findAndTrig(key []string, pkg, path string) {
 					fmt.Printf("\033[30;1m[%s] \033[31;1m[%s failed]\033[0m \033[30;1m%s\033[0m\n",
 						time.Now().Format("15:04:05"), r.Name, err)
 				}
-				return
+				break
 			}
 		}
 	}
