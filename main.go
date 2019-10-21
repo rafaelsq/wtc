@@ -175,10 +175,13 @@ func findAndTrig(key []string, pkg, path string) {
 	for _, s := range key {
 		for _, r := range config.Rules {
 			if r.Name == s {
-				if err := trig(r, pkg, path); err != nil {
-					fmt.Printf("\033[30;1m[%s] \033[31;1m[%s failed]\033[0m \033[30;1m%s\033[0m\n",
-						time.Now().Format("15:04:05"), r.Name, err)
-				}
+				r := r
+				go func() {
+					if err := trig(r, pkg, path); err != nil {
+						fmt.Printf("\033[30;1m[%s] \033[31;1m[%s failed]\033[0m \033[30;1m%s\033[0m\n",
+							time.Now().Format("15:04:05"), r.Name, err)
+					}
+				}()
 				break
 			}
 		}
