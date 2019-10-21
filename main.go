@@ -21,9 +21,11 @@ import (
 
 var appContext context.Context
 var contexts map[string]context.CancelFunc
+var contextsLock map[string]chan struct{}
 var ctxmutex sync.Mutex
+var contextsLockMutext sync.Mutex
 
-func getContext(label string) context.Context {
+func getContext(label string) (context.Context, context.CancelFunc) {
 	ctxmutex.Lock()
 	defer ctxmutex.Unlock()
 
@@ -32,8 +34,10 @@ func getContext(label string) context.Context {
 	}
 
 	var ctx context.Context
-	ctx, contexts[label] = context.WithCancel(appContext)
-	return ctx
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithCancel(appContext)
+	contexts[label] = cancel
+	return ctx, cancel
 }
 
 var config *Config
@@ -63,7 +67,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "No [.]wtc.yaml or valid command provided.\n")
 		flag.CommandLine.Usage()
 		return
-	} else {
+	} else if !has {
 		config.Rules = append(config.Rules, &Rule{
 			Name:    "run",
 			Match:   flag.Arg(0),
@@ -79,6 +83,7 @@ func start(config *Config) {
 
 	appContext, cancelAll = context.WithCancel(context.Background())
 	contexts = make(map[string]context.CancelFunc)
+	contextsLock = make(map[string]chan struct{})
 
 	c := make(chan notify.EventInfo)
 
@@ -101,7 +106,17 @@ func start(config *Config) {
 		case <-exitSignal:
 			notify.Stop(c)
 			cancelAll()
-			time.Sleep(time.Second)
+
+			for _, r := range config.Rules {
+				contextsLockMutext.Lock()
+				if l, exists := contextsLock[r.Name]; exists {
+					contextsLockMutext.Unlock()
+					l <- struct{}{}
+					<-l
+					continue
+				}
+				contextsLockMutext.Unlock()
+			}
 			return
 		case ei := <-c:
 			path := ei.Path()
@@ -189,7 +204,22 @@ func findAndTrig(key []string, pkg, path string) {
 }
 
 func trig(rule *Rule, pkg, path string) error {
-	ctx := getContext(rule.Name)
+	ctx, cancel := getContext(rule.Name)
+
+	contextsLockMutext.Lock()
+	var queue chan struct{}
+	var has bool
+	queue, has = contextsLock[rule.Name]
+	if !has {
+		queue = make(chan struct{}, 1)
+		contextsLock[rule.Name] = queue
+	}
+	contextsLockMutext.Unlock()
+
+	queue <- struct{}{}
+	defer func() {
+		<-queue
+	}()
 
 	debounce := config.Debounce
 	if rule.Debounce != nil {
@@ -213,6 +243,8 @@ func trig(rule *Rule, pkg, path string) error {
 	if err == context.Canceled {
 		return nil
 	}
+
+	defer cancel()
 	if err != nil {
 		return err
 	}
