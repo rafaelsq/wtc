@@ -1,7 +1,7 @@
 debounce: 100
-ignore: "\\.git/"
-trig: install
+ignore: \.git/
+trig: [install]
 rules:
   - name: install
-    match: "\\.go$"
-    command: "go install"
+    match: \.go$
+    command: go install
