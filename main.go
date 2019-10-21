@@ -136,12 +136,10 @@ func start(config *Config) {
 }
 
 func findFile() ([]byte, error) {
-	if _, err := os.Stat("wtc.yaml"); err == nil {
-		return ioutil.ReadFile("wtc.yaml")
-	}
-
-	if _, err := os.Stat(".wtc.yaml"); err == nil {
-		return ioutil.ReadFile(".wtc.yaml")
+	for _, file := range []string{"wtc.yaml", ".wtc.yaml", "wtc.yml", ".wtc.yml"} {
+		if _, err := os.Stat(file); err == nil {
+			return ioutil.ReadFile(file)
+		}
 	}
 
 	return nil, nil
