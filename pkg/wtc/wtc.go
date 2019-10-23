@@ -1,4 +1,4 @@
-package main
+package wtc
 
 import (
 	"context"
@@ -42,7 +42,7 @@ func getContext(label string) (context.Context, context.CancelFunc) {
 
 var config *Config
 
-func main() {
+func ParseArgs() *Config {
 	flag.CommandLine.Usage = func() {
 		fmt.Fprintf(
 			flag.CommandLine.Output(),
@@ -53,7 +53,7 @@ func main() {
 		flag.PrintDefaults()
 	}
 
-	config = &Config{Debounce: 300}
+	config := &Config{Debounce: 300}
 
 	flag.IntVar(&config.Debounce, "debounce", 300, "global debounce")
 	flag.StringVar(&config.Ignore, "ignore", "", "regex")
@@ -66,7 +66,7 @@ func main() {
 	} else if !has && flag.NArg() < 2 {
 		fmt.Fprintf(os.Stderr, "No [.]wtc.yaml or valid command provided.\n")
 		flag.CommandLine.Usage()
-		return
+		return nil
 	} else if !has {
 		config.Rules = append(config.Rules, &Rule{
 			Name:    "run",
@@ -75,12 +75,13 @@ func main() {
 		})
 	}
 
-	start(config)
+	return config
 }
 
-func start(config *Config) {
+func Start(cfg *Config) {
 	var cancelAll context.CancelFunc
 
+	config = cfg
 	appContext, cancelAll = context.WithCancel(context.Background())
 	contexts = make(map[string]context.CancelFunc)
 	contextsLock = make(map[string]chan struct{})

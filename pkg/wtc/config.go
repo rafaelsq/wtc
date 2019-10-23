@@ -1,4 +1,4 @@
-package main
+package wtc
 
 // Config defines the options for watching files
 type Config struct {
