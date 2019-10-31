@@ -7,6 +7,7 @@ type Config struct {
 	Debounce int      `yaml:"debounce"`
 	Rules    []*Rule  `yaml:"rules"`
 	Trig     []string `yaml:"trig"`
+	Env      []*Env   `yaml:"env"`
 }
 
 // Rule defines the options for running commands
@@ -17,4 +18,11 @@ type Rule struct {
 	Debounce *int     `yaml:"debounce"`
 	Command  string   `yaml:"command"`
 	Trig     []string `yaml:"trig"`
+	Env      []*Env   `yaml:"env"`
+}
+
+// Env defines environment variables
+type Env struct {
+	Name  string `yaml:"name"`
+	Value string `yaml:"value"`
 }
