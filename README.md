@@ -50,12 +50,18 @@ no_trace: false
 debounce: 300  # if rule has no debounce, this will be used instead
 ignore: \.git/
 trig: [start, buildNRun]  # will run on start
+env:
+  - name: PORT
+    value: 2000
 rules:
   - name: start
   - name: buildNRun
     match: \.go$
     ignore: _test\.go$
     command: go build
+    env:
+      - name: development
+        value: true
     trig: 
       - done build
       - run

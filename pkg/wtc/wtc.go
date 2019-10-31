@@ -187,6 +187,14 @@ func retrieveRegexp(pattern string) *regexp.Regexp {
 	return result
 }
 
+func envToStrings(env []*Env) []string {
+	result := []string{}
+	for _, e := range env {
+		result = append(result, e.Name+"="+e.Value)
+	}
+	return result
+}
+
 func findAndTrig(key []string, pkg, path string) {
 	for _, s := range key {
 		for _, r := range config.Rules {
@@ -235,12 +243,16 @@ func trig(rule *Rule, pkg, path string) error {
 
 	cmd := strings.Replace(strings.Replace(rule.Command, "{PKG}", pkg, -1), "{FILE}", path, -1)
 
+	env := os.Environ()
+	env = append(env, envToStrings(config.Env)...)
+	env = append(env, envToStrings(rule.Env)...)
+
 	if !config.NoTrace {
 		fmt.Printf("\033[30;1m[%s] \033[32;1m[%s]\033[0m \033[30;3m%s\033[0m\n",
 			time.Now().Format("15:04:05"), rule.Name, cmd)
 	}
 
-	err := run(ctx, cmd)
+	err := run(ctx, cmd, env)
 	if err == context.Canceled {
 		return nil
 	}
@@ -255,11 +267,11 @@ func trig(rule *Rule, pkg, path string) error {
 	return nil
 }
 
-func run(ctx context.Context, command string) error {
+func run(ctx context.Context, command string, env []string) error {
 	cmd := exec.Command("sh", "-c", command)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = os.Environ()
+	cmd.Env = env
 
 	// ask Go to create a new Process Group for this process
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
