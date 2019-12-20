@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"html/template"
 	"io/ioutil"
 	"log"
 	"os"
@@ -19,11 +20,23 @@ import (
 	yaml "gopkg.in/yaml.v2"
 )
 
-var appContext context.Context
-var contexts map[string]context.CancelFunc
-var contextsLock map[string]chan struct{}
-var ctxmutex sync.Mutex
-var contextsLockMutext sync.Mutex
+var (
+	appContext         context.Context
+	contexts           map[string]context.CancelFunc
+	contextsLock       map[string]chan struct{}
+	ctxmutex           sync.Mutex
+	contextsLockMutext sync.Mutex
+
+	okFormat   *template.Template
+	failFormat *template.Template
+)
+
+type formatPayload struct {
+	Name    string
+	Time    string
+	Command string
+	Error   string
+}
 
 func getContext(label string) (context.Context, context.CancelFunc) {
 	ctxmutex.Lock()
@@ -73,6 +86,27 @@ func ParseArgs() *Config {
 			Match:   flag.Arg(0),
 			Command: flag.Arg(1),
 		})
+	}
+
+	if config.Format.OK == "" {
+		config.Format.OK = "\u001b[38;5;244m[{{.Time}}] \u001b[1m\u001b[38;5;2m[{{.Name}}]\033[0m " +
+			"\u001b[38;5;238m{{.Command}}\u001b[0m\n"
+	}
+
+	if config.Format.Fail == "" {
+		config.Format.Fail = "\u001b[38;5;244m[{{.Time}}] \u001b[1m\u001b[38;5;1m[{{.Name}} failed]\u001b[0m " +
+			"\u001b[38;5;238m{{.Error}}\u001b[0m\n"
+	}
+	var err error
+	okFormat, err = template.New("okFormat").Parse(config.Format.OK)
+	if err != nil {
+		log.Fatal("Invalid Ok Format")
+		return nil
+	}
+	failFormat, err = template.New("failFormat").Parse(config.Format.Fail)
+	if err != nil {
+		log.Fatal("Invalid Fail Format")
+		return nil
 	}
 
 	return config
@@ -140,8 +174,13 @@ func Start(cfg *Config) {
 				if rule.Match != "" && retrieveRegexp(rule.Match).MatchString(path) {
 					go func() {
 						if err := trig(rule, pkg, path); err != nil {
-							fmt.Printf("\033[30;1m[%s] \033[31;1m[%s failed]\033[0m \033[30;1m%s\033[0m\n",
-								time.Now().Format("15:04:05"), rule.Name, err)
+							_ = failFormat.Execute(os.Stderr, formatPayload{
+								Name:  rule.Name,
+								Time:  time.Now().Format("15:04:05"),
+								Error: err.Error(),
+								Command: strings.Replace(strings.Replace(rule.Command, "{PKG}", pkg, -1),
+									"{FILE}", path, -1),
+							})
 						}
 					}()
 				}
@@ -202,8 +241,13 @@ func findAndTrig(key []string, pkg, path string) {
 				r := r
 				go func() {
 					if err := trig(r, pkg, path); err != nil {
-						fmt.Printf("\033[30;1m[%s] \033[31;1m[%s failed]\033[0m \033[30;1m%s\033[0m\n",
-							time.Now().Format("15:04:05"), r.Name, err)
+						_ = failFormat.Execute(os.Stderr, formatPayload{
+							Name:  r.Name,
+							Time:  time.Now().Format("15:04:05"),
+							Error: err.Error(),
+							Command: strings.Replace(strings.Replace(r.Command, "{PKG}", pkg, -1),
+								"{FILE}", path, -1),
+						})
 					}
 				}()
 				break
@@ -248,8 +292,11 @@ func trig(rule *Rule, pkg, path string) error {
 	env = append(env, envToStrings(rule.Env)...)
 
 	if !config.NoTrace {
-		fmt.Printf("\033[30;1m[%s] \033[32;1m[%s]\033[0m \033[30;3m%s\033[0m\n",
-			time.Now().Format("15:04:05"), rule.Name, cmd)
+		_ = okFormat.Execute(os.Stdout, formatPayload{
+			Name:    rule.Name,
+			Time:    time.Now().Format("15:04:05"),
+			Command: cmd,
+		})
 	}
 
 	err := run(ctx, cmd, env)
