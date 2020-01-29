@@ -20,18 +20,17 @@ Before you begin, ensure you have installed the latest version of Go. See the [G
 ## Usage
 
 ```
-USAGE:
-$ wtc [[flags] regex command]
-
-If [.]wtc.y[a]ml exists, it will be used.
+$ wtc [[flags] [regex command]]
 
 FLAGS:
   -debounce int
-    	global debounce (default 300)
+        global debounce (default 300)
+  -f string
+        wtc config file (default try to find [.]wtc.y[a]ml)
   -ignore string
-    	regex
+        regex
   -no-trace
-    	disable messages.
+        disable messages.
 ```
 
 ### Example

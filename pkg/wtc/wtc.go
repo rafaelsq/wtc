@@ -59,8 +59,7 @@ func ParseArgs() *Config {
 	flag.CommandLine.Usage = func() {
 		fmt.Fprintf(
 			flag.CommandLine.Output(),
-			"USAGE:\n$ wtc [[flags] regex command]\n\n"+
-				"If [.]wtc.y[a]ml exists, it will be used.\n\n"+
+			"USAGE:\n$ wtc [[flags] [regex command]]\n\n"+
 				"FLAGS:\n",
 		)
 		flag.PrintDefaults()
@@ -68,13 +67,16 @@ func ParseArgs() *Config {
 
 	config := &Config{Debounce: 300}
 
+	var configFilePath string
+
 	flag.IntVar(&config.Debounce, "debounce", 300, "global debounce")
 	flag.StringVar(&config.Ignore, "ignore", "", "regex")
 	flag.BoolVar(&config.NoTrace, "no-trace", false, "disable messages.")
+	flag.StringVar(&configFilePath, "f", "", "wtc config file (default try to find [.]wtc.y[a]ml)")
 
 	flag.Parse()
 
-	if has, err := readConfig(config); err != nil {
+	if has, err := readConfig(config, configFilePath); err != nil {
 		log.Fatal(err)
 	} else if !has && flag.NArg() < 2 {
 		fmt.Fprintf(os.Stderr, "No [.]wtc.yaml or valid command provided.\n")
@@ -199,8 +201,14 @@ func findFile() ([]byte, error) {
 	return nil, nil
 }
 
-func readConfig(config *Config) (bool, error) {
-	yamlFile, err := findFile()
+func readConfig(config *Config, filePath string) (bool, error) {
+	var yamlFile []byte
+	var err error
+	if len(filePath) != 0 {
+		yamlFile, err = ioutil.ReadFile(filePath)
+	} else {
+		yamlFile, err = findFile()
+	}
 	if err != nil {
 		return false, err
 	}
