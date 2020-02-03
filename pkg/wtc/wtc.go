@@ -1,6 +1,7 @@
 package wtc
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -296,6 +297,19 @@ func trig(rule *Rule, pkg, path string) error {
 	cmd := strings.Replace(strings.Replace(rule.Command, "{PKG}", pkg, -1), "{FILE}", path, -1)
 
 	env := os.Environ()
+
+	if config.EnvFile != "" {
+		b, err := ioutil.ReadFile(config.EnvFile)
+		if err != nil {
+			panic(err)
+		}
+		for _, l := range bytes.Split(b, []byte("\n")) {
+			if len(l) > 0 {
+				env = append(env, string(l))
+			}
+		}
+	}
+
 	env = append(env, envToStrings(config.Env)...)
 	env = append(env, envToStrings(rule.Env)...)
 

@@ -8,6 +8,7 @@ type Config struct {
 	Rules    []*Rule  `yaml:"rules"`
 	Trig     []string `yaml:"trig"`
 	Env      []*Env   `yaml:"env"`
+	EnvFile  string   `yaml:"env_file"`
 	Format   struct {
 		OK   string `yaml:"ok"`
 		Fail string `yaml:"fail"`

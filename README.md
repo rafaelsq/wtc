@@ -52,6 +52,7 @@ format:
   ok: "{{.Time}} \u001b[38;5;2m[{{.Name}}]\u001b[0m - {{.Command}}\n"
   fail: "{{.Time}} \u001b[38;5;1m[{{.Name}}]\u001b[0m - {{.Error}}\n"
 trig: [start, buildNRun]  # will run on start
+env_file: 'project.env'
 env:
   - name: PORT
     value: 2000
