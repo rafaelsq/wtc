@@ -9,6 +9,7 @@ type Config struct {
 	Trig     []string `yaml:"trig"`
 	Env      []*Env   `yaml:"env"`
 	EnvFile  string   `yaml:"env_file"`
+	EnvFiles []string `yaml:"env_files"`
 	Format   struct {
 		OK   string `yaml:"ok"`
 		Fail string `yaml:"fail"`

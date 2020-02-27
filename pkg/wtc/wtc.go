@@ -299,13 +299,20 @@ func trig(rule *Rule, pkg, path string) error {
 	env := os.Environ()
 
 	if config.EnvFile != "" {
-		b, err := ioutil.ReadFile(config.EnvFile)
+		config.EnvFiles = append(config.EnvFiles, config.EnvFile)
+	}
+
+	exportRe := regexp.MustCompile(`(i?)export\s+`)
+	for _, path := range config.EnvFiles {
+		b, err := ioutil.ReadFile(path)
 		if err != nil {
 			panic(err)
 		}
+
 		for _, l := range bytes.Split(b, []byte("\n")) {
-			if len(l) > 0 {
-				env = append(env, string(l))
+			if len(l) > 0 && l[0] != '#' {
+				pieces := strings.Split(string(exportRe.ReplaceAll(l, nil)), "=")
+				env = append(env, fmt.Sprintf("%s=%s", pieces[0], strings.Trim(pieces[1], "\" ")))
 			}
 		}
 	}
