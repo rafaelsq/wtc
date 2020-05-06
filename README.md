@@ -55,6 +55,8 @@ trig: [start, buildNRun]  # will run on start
 env:
   - name: PORT
     value: 2000
+  - name: BASE_FILE
+    value: ./base.env
 rules:
   - name: start
   - name: buildNRun
@@ -62,9 +64,9 @@ rules:
     ignore: _test\.go$
     command: go build
     env:
-      - name: environment
+      - name: ENV
         value: development
-      - name: project-dev.env
+      - name: %{BASE_FILE}% # replace from environment
         type: file
     trig: 
       - done build
@@ -75,14 +77,22 @@ rules:
     command: ./$(basename `pwd`)
   - name: test
     env:
-      - name: environment
+      - name: ENV
         value: test
-      - name: project-test.env
+      - name: %{BASE_FILE}%
         type: file
     match: _test\.go$
     command: go test -cover {PKG}
 ```
 
+Example base.env
+
+```bash
+export PORT=3000
+
+# replace from environment
+ENVIRONMENT=%{ENV}%
+```
 
 ## Dev
 

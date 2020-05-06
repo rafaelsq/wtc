@@ -1,7 +1,6 @@
 package wtc
 
 import (
-	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -215,6 +214,19 @@ func readConfig(config *Config, filePath string) (bool, error) {
 	}
 
 	if len(yamlFile) != 0 {
+		envs := os.Environ()
+		keys := make(map[string]string, len(envs))
+		for _, v := range envs {
+			pieces := strings.Split(v, "=")
+			keys[pieces[0]] = pieces[1]
+		}
+
+		replaceEnvRe := regexp.MustCompile(`(i?)\%\{[A-Z0-9_]+\}\%`)
+
+		yamlFile = []byte(replaceEnvRe.ReplaceAllStringFunc(string(yamlFile), func(k string) string {
+			return keys[strings.TrimSuffix(strings.TrimPrefix(k, "%{"), "}%")]
+		}))
+
 		return true, yaml.Unmarshal(yamlFile, &config)
 	}
 
@@ -232,31 +244,6 @@ func retrieveRegexp(pattern string) *regexp.Regexp {
 		regexpMap[pattern] = result
 	}
 	regexpMutex.Unlock()
-	return result
-}
-
-func envToStrings(env []*Env) []string {
-	exportRe := regexp.MustCompile(`(i?)export\s+`)
-
-	result := []string{}
-	for _, e := range env {
-		if e.Type == "file" {
-			b, err := ioutil.ReadFile(e.Name)
-			if err != nil {
-				panic(err)
-			}
-
-			for _, l := range bytes.Split(b, []byte("\n")) {
-				if len(l) > 0 && l[0] != '#' {
-					pieces := strings.Split(string(exportRe.ReplaceAll(l, nil)), "=")
-					result = append(result, fmt.Sprintf("%s=%s", pieces[0], strings.Trim(pieces[1], "\" ")))
-				}
-			}
-		} else {
-			result = append(result, e.Name+"="+e.Value)
-		}
-	}
-
 	return result
 }
 
@@ -313,10 +300,43 @@ func trig(rule *Rule, pkg, path string) error {
 
 	cmd := strings.Replace(strings.Replace(rule.Command, "{PKG}", pkg, -1), "{FILE}", path, -1)
 
-	env := os.Environ()
+	exportRe := regexp.MustCompile(`(i?)export\s+`)
+	replaceEnvRe := regexp.MustCompile(`(i?)\%\{[A-Z0-9_]+\}\%`)
 
-	env = append(env, envToStrings(config.Env)...)
-	env = append(env, envToStrings(rule.Env)...)
+	keys := map[string]string{}
+	envs := os.Environ()
+	for _, v := range envs {
+		pieces := strings.Split(v, "=")
+		keys[pieces[0]] = pieces[1]
+	}
+	for _, e := range append(config.Env, rule.Env...) {
+		if e.Type == "file" {
+			b, err := ioutil.ReadFile(e.Name)
+			if err != nil {
+				panic(err)
+			}
+
+			body := replaceEnvRe.ReplaceAllStringFunc(string(b), func(k string) string {
+				return keys[strings.TrimSuffix(strings.TrimPrefix(k, "%{"), "}%")]
+			})
+
+			for _, l := range strings.Split(body, "\n") {
+				l := strings.TrimSpace(l)
+				if len(l) > 0 && l[0] != '#' {
+					pieces := strings.Split(string(exportRe.ReplaceAllString(l, "")), "=")
+					if len(pieces) > 1 {
+						keys[strings.TrimSpace(pieces[0])] = pieces[1]
+					}
+				}
+			}
+		} else {
+			keys[strings.TrimSpace(e.Name)] = strings.TrimSpace(e.Value)
+		}
+	}
+
+	for k, v := range keys {
+		envs = append(envs, k+"="+strings.Trim(v, "\" "))
+	}
 
 	if !config.NoTrace {
 		_ = okFormat.Execute(os.Stdout, formatPayload{
@@ -326,7 +346,7 @@ func trig(rule *Rule, pkg, path string) error {
 		})
 	}
 
-	err := run(ctx, cmd, env)
+	err := run(ctx, cmd, envs)
 	if err == context.Canceled {
 		return nil
 	}
