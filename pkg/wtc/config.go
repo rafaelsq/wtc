@@ -8,8 +8,6 @@ type Config struct {
 	Rules    []*Rule  `yaml:"rules"`
 	Trig     []string `yaml:"trig"`
 	Env      []*Env   `yaml:"env"`
-	EnvFile  string   `yaml:"env_file"`
-	EnvFiles []string `yaml:"env_files"`
 	Format   struct {
 		OK   string `yaml:"ok"`
 		Fail string `yaml:"fail"`
@@ -31,4 +29,5 @@ type Rule struct {
 type Env struct {
 	Name  string `yaml:"name"`
 	Value string `yaml:"value"`
+	Type  string `yaml:"type"`
 }

@@ -52,7 +52,6 @@ format:
   ok: "{{.Time}} \u001b[38;5;2m[{{.Name}}]\u001b[0m - {{.Command}}\n"
   fail: "{{.Time}} \u001b[38;5;1m[{{.Name}}]\u001b[0m - {{.Error}}\n"
 trig: [start, buildNRun]  # will run on start
-env_file: 'project.env'
 env:
   - name: PORT
     value: 2000
@@ -63,8 +62,10 @@ rules:
     ignore: _test\.go$
     command: go build
     env:
-      - name: development
-        value: true
+      - name: environment
+        value: development
+      - name: project-dev.env
+        type: file
     trig: 
       - done build
       - run
@@ -73,6 +74,11 @@ rules:
   - name: run
     command: ./$(basename `pwd`)
   - name: test
+    env:
+      - name: environment
+        value: test
+      - name: project-test.env
+        type: file
     match: _test\.go$
     command: go test -cover {PKG}
 ```

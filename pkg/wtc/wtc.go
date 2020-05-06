@@ -236,10 +236,27 @@ func retrieveRegexp(pattern string) *regexp.Regexp {
 }
 
 func envToStrings(env []*Env) []string {
+	exportRe := regexp.MustCompile(`(i?)export\s+`)
+
 	result := []string{}
 	for _, e := range env {
-		result = append(result, e.Name+"="+e.Value)
+		if e.Type == "file" {
+			b, err := ioutil.ReadFile(e.Name)
+			if err != nil {
+				panic(err)
+			}
+
+			for _, l := range bytes.Split(b, []byte("\n")) {
+				if len(l) > 0 && l[0] != '#' {
+					pieces := strings.Split(string(exportRe.ReplaceAll(l, nil)), "=")
+					result = append(result, fmt.Sprintf("%s=%s", pieces[0], strings.Trim(pieces[1], "\" ")))
+				}
+			}
+		} else {
+			result = append(result, e.Name+"="+e.Value)
+		}
 	}
+
 	return result
 }
 
@@ -297,25 +314,6 @@ func trig(rule *Rule, pkg, path string) error {
 	cmd := strings.Replace(strings.Replace(rule.Command, "{PKG}", pkg, -1), "{FILE}", path, -1)
 
 	env := os.Environ()
-
-	if config.EnvFile != "" {
-		config.EnvFiles = append(config.EnvFiles, config.EnvFile)
-	}
-
-	exportRe := regexp.MustCompile(`(i?)export\s+`)
-	for _, path := range config.EnvFiles {
-		b, err := ioutil.ReadFile(path)
-		if err != nil {
-			panic(err)
-		}
-
-		for _, l := range bytes.Split(b, []byte("\n")) {
-			if len(l) > 0 && l[0] != '#' {
-				pieces := strings.Split(string(exportRe.ReplaceAll(l, nil)), "=")
-				env = append(env, fmt.Sprintf("%s=%s", pieces[0], strings.Trim(pieces[1], "\" ")))
-			}
-		}
-	}
 
 	env = append(env, envToStrings(config.Env)...)
 	env = append(env, envToStrings(rule.Env)...)
