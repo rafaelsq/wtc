@@ -267,6 +267,7 @@ func retrieveRegexp(pattern string) *regexp.Regexp {
 
 func findAndTrig(sync bool, key []string, pkg, path string) {
 	for _, s := range key {
+		found := false
 		for _, r := range config.Rules {
 			if r.Name == s {
 				r := r
@@ -287,8 +288,17 @@ func findAndTrig(sync bool, key []string, pkg, path string) {
 					go fn()
 				}
 
+				found = true
 				break
 			}
+		}
+
+		if !found {
+			_ = failFormat.Execute(os.Stderr, formatPayload{
+				Name:  s,
+				Time:  time.Now().Format("15:04:05"),
+				Error: "rule not found",
+			})
 		}
 	}
 }
