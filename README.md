@@ -8,20 +8,31 @@ WTC is a simple utility you can use to watch files and execute commands.
 
 ## Install
 
-Latest Release  
+From master branch  
+`$ go get -u github.com/rafaelsq/wtc`  
+
+You can also install by release(linux64 only);  
 `$ curl -sfL --silent https://github.com/rafaelsq/wtc/releases/latest/download/wtc.linux64.tar.gz | tar -xzv && mv wtc $(go env GOPATH)/bin/`
+
 
 ## Compile from source
 
 Before you begin, ensure you have installed the latest version of Go. See the [Go documentation](https://golang.org/doc/install) for details.
 
-`$ go get -u github.com/rafaelsq/wtc`
 
 ## Usage
 
 ```
-$ wtc [[flags] [regex command]]
+$ wtc --help
+USAGE:
+wtc [[flags] [regex command]]
+        ex.: wtc
+            // will read [.]wtc.y[a]ml
+        ex.: wtc "_test\.go$" "go test -cover {PKG}"
 
+wtc [flags]] [rule-name]
+        ex.: wtc -t rule-name
+             wtc --no-trace "rule ruleb"
 FLAGS:
   -debounce int
         global debounce (default 300)
@@ -31,18 +42,17 @@ FLAGS:
         regex
   -no-trace
         disable messages.
+  -t string
+        trig one or more rules by name
+                ex.: wtc -t ruleA
+                     wtc -t "ruleA ruleB"
 ```
 
-### Example
-
-`wtc "_test\.go$" "go test -cover {PKG}"`
-
-
-## Usage with [.]wtc.yaml 
+## Usage with [.]wtc.y[a]ml 
 
 You can configure WTC by creating an YAML file with your own rules.
 
-Example:
+Example with all options:
 
 ```yaml
 no_trace: false
@@ -93,6 +103,11 @@ export PORT=3000
 # replace from environment
 ENVIRONMENT=%{ENV}%
 ```
+
+You can also trig a rule using `wtc -t`, example;  
+`wtc -t "start buildNRun"`  
+`wtc --no-trace buildNRun`  
+
 
 ## Dev
 

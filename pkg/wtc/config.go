@@ -2,13 +2,14 @@ package wtc
 
 // Config defines the options for watching files
 type Config struct {
-	NoTrace  bool     `yaml:"no_trace"`
-	Ignore   string   `yaml:"ignore"`
-	Debounce int      `yaml:"debounce"`
-	Rules    []*Rule  `yaml:"rules"`
-	Trig     []string `yaml:"trig"`
-	Env      []*Env   `yaml:"env"`
-	Format   struct {
+	NoTrace    bool     `yaml:"no_trace"`
+	Ignore     string   `yaml:"ignore"`
+	Debounce   int      `yaml:"debounce"`
+	Rules      []*Rule  `yaml:"rules"`
+	Trig       []string `yaml:"trig"`
+	ExitOnTrig bool     `yaml:"-"`
+	Env        []*Env   `yaml:"env"`
+	Format     struct {
 		OK   string `yaml:"ok"`
 		Fail string `yaml:"fail"`
 	} `yaml:"format"`

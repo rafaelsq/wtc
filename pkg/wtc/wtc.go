@@ -59,7 +59,10 @@ func ParseArgs() *Config {
 	flag.CommandLine.Usage = func() {
 		fmt.Fprintf(
 			flag.CommandLine.Output(),
-			"USAGE:\n$ wtc [[flags] [regex command]]\n\n"+
+			"USAGE:\nwtc [[flags] [regex command]]\n"+
+				"\tex.: wtc\n\t    // will read [.]wtc.y[a]ml\n"+
+				"\tex.: wtc \"_test\\.go$\" \"go test -cover {PKG}\"\n\n"+
+				"wtc [flags]] [rule-name]\n\tex.: wtc -t rule-name\n\t     wtc --no-trace \"rule ruleb\"\n"+
 				"FLAGS:\n",
 		)
 		flag.PrintDefaults()
@@ -74,20 +77,30 @@ func ParseArgs() *Config {
 	flag.BoolVar(&config.NoTrace, "no-trace", false, "disable messages.")
 	flag.StringVar(&configFilePath, "f", "", "wtc config file (default try to find [.]wtc.y[a]ml)")
 
+	var trigs string
+	flag.StringVar(&trigs, "t", "", "trig one or more rules by name\n\tex.: wtc -t ruleA\n\t     wtc -t \"ruleA ruleB\"")
+
 	flag.Parse()
 
 	if has, err := readConfig(config, configFilePath); err != nil {
 		log.Fatal(err)
+	} else if has && flag.NArg() == 1 {
+		trigs = flag.Arg(0)
 	} else if !has && flag.NArg() < 2 {
 		fmt.Fprintf(os.Stderr, "No [.]wtc.yaml or valid command provided.\n")
 		flag.CommandLine.Usage()
-		return nil
+		os.Exit(1)
 	} else if !has {
 		config.Rules = append(config.Rules, &Rule{
 			Name:    "run",
 			Match:   flag.Arg(0),
 			Command: flag.Arg(1),
 		})
+	}
+
+	if trigs != "" {
+		config.Trig = strings.Split(trigs, " ")
+		config.ExitOnTrig = true
 	}
 
 	if config.Format.OK == "" {
@@ -122,18 +135,23 @@ func Start(cfg *Config) {
 	contexts = make(map[string]context.CancelFunc)
 	contextsLock = make(map[string]chan struct{})
 
-	c := make(chan notify.EventInfo)
-
-	if err := notify.Watch("./...", c, notify.All); err != nil {
-		log.Fatal(err)
-	}
-
 	dir, err := os.Getwd()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	go findAndTrig(config.Trig, "./", "./")
+	go func() {
+		findAndTrig(config.ExitOnTrig, config.Trig, "./", "./")
+		if config.ExitOnTrig {
+			os.Exit(0)
+		}
+	}()
+
+	c := make(chan notify.EventInfo)
+
+	if err := notify.Watch("./...", c, notify.All); err != nil {
+		log.Fatal(err)
+	}
 
 	exitSignal := make(chan os.Signal, 1)
 	signal.Notify(exitSignal, os.Interrupt)
@@ -247,12 +265,12 @@ func retrieveRegexp(pattern string) *regexp.Regexp {
 	return result
 }
 
-func findAndTrig(key []string, pkg, path string) {
+func findAndTrig(sync bool, key []string, pkg, path string) {
 	for _, s := range key {
 		for _, r := range config.Rules {
 			if r.Name == s {
 				r := r
-				go func() {
+				fn := func() {
 					if err := trig(r, pkg, path); err != nil {
 						_ = failFormat.Execute(os.Stderr, formatPayload{
 							Name:  r.Name,
@@ -262,7 +280,13 @@ func findAndTrig(key []string, pkg, path string) {
 								"{FILE}", path, -1),
 						})
 					}
-				}()
+				}
+				if sync {
+					fn()
+				} else {
+					go fn()
+				}
+
 				break
 			}
 		}
@@ -356,7 +380,7 @@ func trig(rule *Rule, pkg, path string) error {
 		return err
 	}
 
-	findAndTrig(rule.Trig, pkg, path)
+	findAndTrig(false, rule.Trig, pkg, path)
 
 	return nil
 }
