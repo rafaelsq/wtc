@@ -19,6 +19,8 @@ You can also install by release(linux64 only);
 
 Before you begin, ensure you have installed the latest version of Go. See the [Go documentation](https://golang.org/doc/install) for details.
 
+`$ go get -u github.com/rafaelsq/wtc`  
+
 
 ## Usage
 
@@ -111,7 +113,7 @@ You can also trig a rule using `wtc -t`, example;
 
 ## Dev
 
-`$ make` will watch for changes and run `go install`
+`$ make` will watch for changes and run `go install` or just run `$ go run main.go`
 ```yaml
 debounce: 100
 ignore: "\\.git/"
