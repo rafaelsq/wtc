@@ -64,6 +64,7 @@ format:
   ok: "{{.Time}} \u001b[38;5;2m[{{.Name}}]\u001b[0m - {{.Command}}\n"
   fail: "{{.Time}} \u001b[38;5;1m[{{.Name}}]\u001b[0m - {{.Error}}\n"
 trig: [start, buildNRun]  # will run on start
+trig_async: true
 env:
   - name: PORT
     value: 2000
@@ -80,6 +81,7 @@ rules:
         value: development
       - name: %{BASE_FILE}% # replace from environment
         type: file
+    trig_async: false
     trig: 
       - done build
       - run

@@ -141,7 +141,7 @@ func Start(cfg *Config) {
 	}
 
 	go func() {
-		findAndTrig(config.ExitOnTrig, config.Trig, "./", "./")
+		findAndTrig(config.TrigAsync, config.Trig, "./", "./")
 		if config.ExitOnTrig {
 			os.Exit(0)
 		}
@@ -265,7 +265,8 @@ func retrieveRegexp(pattern string) *regexp.Regexp {
 	return result
 }
 
-func findAndTrig(sync bool, key []string, pkg, path string) {
+func findAndTrig(async bool, key []string, pkg, path string) {
+	var wg sync.WaitGroup
 	for _, s := range key {
 		found := false
 		for _, r := range config.Rules {
@@ -282,10 +283,15 @@ func findAndTrig(sync bool, key []string, pkg, path string) {
 						})
 					}
 				}
-				if sync {
-					fn()
+
+				if async {
+					go func() {
+						wg.Add(1)
+						defer wg.Done()
+						fn()
+					}()
 				} else {
-					go fn()
+					fn()
 				}
 
 				found = true
@@ -301,6 +307,8 @@ func findAndTrig(sync bool, key []string, pkg, path string) {
 			})
 		}
 	}
+
+	wg.Wait()
 }
 
 func trig(rule *Rule, pkg, path string) error {
@@ -390,7 +398,7 @@ func trig(rule *Rule, pkg, path string) error {
 		return err
 	}
 
-	findAndTrig(false, rule.Trig, pkg, path)
+	findAndTrig(rule.TrigAsync, rule.Trig, pkg, path)
 
 	return nil
 }
