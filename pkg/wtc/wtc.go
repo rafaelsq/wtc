@@ -1,10 +1,11 @@
 package wtc
 
 import (
+	"bufio"
 	"context"
 	"flag"
 	"fmt"
-	"html/template"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
@@ -26,16 +27,40 @@ var (
 	contextsLock       map[string]chan struct{}
 	ctxmutex           sync.Mutex
 	contextsLockMutext sync.Mutex
-
-	okFormat   *template.Template
-	failFormat *template.Template
 )
 
-type formatPayload struct {
-	Name    string
+var (
+	logger        chan []byte
+	templateRegex = regexp.MustCompile(`\{\{\.([^}]+)\}\}`)
+
+	TimeFormat = "15:04:05"
+
+	TypeOK         = "\u001b[38;5;244m[{{.Time}}] \u001b[38;5;2m[{{.Title}}]\u001b[0m \u001b[38;5;238m{{.Message}}\u001b[0m\n"
+	TypeFail       = "\u001b[38;5;244m[{{.Time}}] \u001b[38;5;1m[{{.Title}}] \u001b[38;5;238m{{.Message}}\u001b[0m\n"
+	TypeCommandOK  = "\u001b[38;5;240m[{{.Time}}] [{{.Title}}] \u001b[0m{{.Message}}\n"
+	TypeCommandErr = "\u001b[38;5;240m[{{.Time}}] [{{.Title}}] \u001b[38;5;1m{{.Message}}\u001b[0m\n"
+)
+
+type Line struct {
+	Type    string
 	Time    string
-	Command string
-	Error   string
+	Title   string
+	Message string
+}
+
+func (l *Line) Log() {
+	logger <- []byte(templateRegex.ReplaceAllStringFunc(l.Type, func(k string) string {
+		switch k[3:][:len(k)-5] {
+		case "Time":
+			return time.Now().Format(TimeFormat)
+		case "Title":
+			return l.Title
+		case "Message":
+			return l.Message
+		default:
+			return ""
+		}
+	}))
 }
 
 func getContext(label string) (context.Context, context.CancelFunc) {
@@ -103,25 +128,23 @@ func ParseArgs() *Config {
 		config.ExitOnTrig = true
 	}
 
-	if config.Format.OK == "" {
-		config.Format.OK = "\u001b[38;5;244m[{{.Time}}] \u001b[1m\u001b[38;5;2m[{{.Name}}]\033[0m " +
-			"\u001b[38;5;238m{{.Command}}\u001b[0m\n"
+	if config.Format.OK != "" {
+		TypeOK = config.Format.OK
 	}
 
-	if config.Format.Fail == "" {
-		config.Format.Fail = "\u001b[38;5;244m[{{.Time}}] \u001b[1m\u001b[38;5;1m[{{.Name}} failed]\u001b[0m " +
-			"\u001b[38;5;238m{{.Error}}\u001b[0m\n"
+	if config.Format.Fail != "" {
+		TypeFail = config.Format.Fail
 	}
-	var err error
-	okFormat, err = template.New("okFormat").Parse(config.Format.OK)
-	if err != nil {
-		log.Fatal("Invalid Ok Format")
-		return nil
+
+	if config.Format.CommandOK != "" {
+		TypeCommandOK = config.Format.CommandOK
 	}
-	failFormat, err = template.New("failFormat").Parse(config.Format.Fail)
-	if err != nil {
-		log.Fatal("Invalid Fail Format")
-		return nil
+
+	if config.Format.CommandErr != "" {
+		TypeCommandErr = config.Format.CommandErr
+	}
+	if config.Format.Time != "" {
+		TimeFormat = config.Format.Time
 	}
 
 	return config
@@ -139,6 +162,16 @@ func Start(cfg *Config) {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	logger = make(chan []byte, 256)
+	go func() {
+		for {
+			select {
+			case l := <-logger:
+				os.Stdout.Write(l)
+			}
+		}
+	}()
 
 	go func() {
 		findAndTrig(config.TrigAsync, config.Trig, "./", "./")
@@ -194,13 +227,11 @@ func Start(cfg *Config) {
 				if rule.Match != "" && retrieveRegexp(rule.Match).MatchString(path) {
 					go func() {
 						if err := trig(rule, pkg, path); err != nil {
-							_ = failFormat.Execute(os.Stderr, formatPayload{
-								Name:  rule.Name,
-								Time:  time.Now().Format("15:04:05"),
-								Error: err.Error(),
-								Command: strings.Replace(strings.Replace(rule.Command, "{PKG}", pkg, -1),
-									"{FILE}", path, -1),
-							})
+							(&Line{
+								Type:    TypeFail,
+								Title:   rule.Name,
+								Message: err.Error(),
+							}).Log()
 						}
 					}()
 				}
@@ -274,13 +305,11 @@ func findAndTrig(async bool, key []string, pkg, path string) {
 				r := r
 				fn := func() {
 					if err := trig(r, pkg, path); err != nil {
-						_ = failFormat.Execute(os.Stderr, formatPayload{
-							Name:  r.Name,
-							Time:  time.Now().Format("15:04:05"),
-							Error: err.Error(),
-							Command: strings.Replace(strings.Replace(r.Command, "{PKG}", pkg, -1),
-								"{FILE}", path, -1),
-						})
+						(&Line{
+							Type:    TypeFail,
+							Title:   r.Name,
+							Message: err.Error(),
+						}).Log()
 					}
 				}
 
@@ -300,11 +329,11 @@ func findAndTrig(async bool, key []string, pkg, path string) {
 		}
 
 		if !found {
-			_ = failFormat.Execute(os.Stderr, formatPayload{
-				Name:  s,
-				Time:  time.Now().Format("15:04:05"),
-				Error: "rule not found",
-			})
+			(&Line{
+				Type:    TypeFail,
+				Title:   s,
+				Message: "rule not found",
+			}).Log()
 		}
 	}
 
@@ -381,14 +410,14 @@ func trig(rule *Rule, pkg, path string) error {
 	}
 
 	if !config.NoTrace {
-		_ = okFormat.Execute(os.Stdout, formatPayload{
-			Name:    rule.Name,
-			Time:    time.Now().Format("15:04:05"),
-			Command: cmd,
-		})
+		(&Line{
+			Type:    TypeOK,
+			Title:   rule.Name,
+			Message: cmd,
+		}).Log()
 	}
 
-	err := run(ctx, cmd, envs)
+	err := run(ctx, rule.Name, cmd, envs)
 	if err == context.Canceled {
 		return nil
 	}
@@ -403,10 +432,57 @@ func trig(rule *Rule, pkg, path string) error {
 	return nil
 }
 
-func run(ctx context.Context, command string, env []string) error {
+func run(ctx context.Context, name, command string, env []string) error {
 	cmd := exec.Command("sh", "-c", command)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+
+	{
+		rr, ww := io.Pipe()
+		defer ww.Close()
+
+		reader := bufio.NewReader(rr)
+		go func() {
+			defer rr.Close()
+			for {
+				l, _, err := reader.ReadLine()
+				if err == io.EOF {
+					return
+				}
+
+				(&Line{
+					Type:    TypeCommandOK,
+					Title:   name,
+					Message: string(l),
+				}).Log()
+			}
+		}()
+
+		cmd.Stdout = ww
+	}
+
+	{
+		rr, ww := io.Pipe()
+		defer ww.Close()
+
+		reader := bufio.NewReader(rr)
+		go func() {
+			defer rr.Close()
+			for {
+				l, _, err := reader.ReadLine()
+				if err == io.EOF {
+					return
+				}
+
+				(&Line{
+					Type:    TypeCommandErr,
+					Title:   name,
+					Message: string(l),
+				}).Log()
+			}
+		}()
+
+		cmd.Stderr = ww
+	}
+
 	cmd.Env = env
 
 	// ask Go to create a new Process Group for this process

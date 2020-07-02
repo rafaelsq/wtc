@@ -11,8 +11,11 @@ type Config struct {
 	ExitOnTrig bool     `yaml:"-"`
 	Env        []*Env   `yaml:"env"`
 	Format     struct {
-		OK   string `yaml:"ok"`
-		Fail string `yaml:"fail"`
+		OK         string `yaml:"ok"`
+		Fail       string `yaml:"fail"`
+		CommandOK  string `yaml:"command_ok"`
+		CommandErr string `yaml:"command_err"`
+		Time       string `yaml:"time"`
 	} `yaml:"format"`
 }
 

@@ -61,8 +61,11 @@ no_trace: false
 debounce: 300  # if rule has no debounce, this will be used instead
 ignore: \.git/
 format:
-  ok: "{{.Time}} \u001b[38;5;2m[{{.Name}}]\u001b[0m - {{.Command}}\n"
-  fail: "{{.Time}} \u001b[38;5;1m[{{.Name}}]\u001b[0m - {{.Error}}\n"
+  time: "15:04:05" # golang format
+  ok: "\u001b[38;5;244m[{{.Time}}] \u001b[38;5;2m[{{.Title}}]\u001b[0m \u001b[38;5;238m{{.Message}}\u001b[0m\n"
+  fail: "\u001b[38;5;244m[{{.Time}}] \u001b[38;5;1m[{{.Title}}] \u001b[38;5;238m{{.Message}}\u001b[0m\n"
+  command_ok: "\u001b[38;5;240m[{{.Time}}] [{{.Title}}] \u001b[0m{{.Message}}\n"
+  command_err: "\u001b[38;5;240m[{{.Time}}] [{{.Title}}] \u001b[38;5;1m{{.Message}}\u001b[0m\n"
 trig: [start, buildNRun]  # will run on start
 trig_async: true
 env:
