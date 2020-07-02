@@ -171,10 +171,13 @@ func Start(cfg *Config) {
 	}()
 
 	go func() {
-		findAndTrig(config.TrigAsync, config.Trig, "./", "./")
 		if config.ExitOnTrig {
+			findAndTrig(false, config.Trig, "./", "./")
 			os.Exit(0)
 		}
+
+		go findAndTrig(true, config.TrigAsync, "./", "./")
+		findAndTrig(false, config.Trig, "./", "./")
 	}()
 
 	c := make(chan notify.EventInfo)
@@ -424,7 +427,8 @@ func trig(rule *Rule, pkg, path string) error {
 		return err
 	}
 
-	findAndTrig(rule.TrigAsync, rule.Trig, pkg, path)
+	go findAndTrig(true, rule.TrigAsync, pkg, path)
+	findAndTrig(false, rule.Trig, pkg, path)
 
 	return nil
 }

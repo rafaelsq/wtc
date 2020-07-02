@@ -7,7 +7,7 @@ type Config struct {
 	Debounce   int      `yaml:"debounce"`
 	Rules      []*Rule  `yaml:"rules"`
 	Trig       []string `yaml:"trig"`
-	TrigAsync  bool     `yaml:"trig_async"`
+	TrigAsync  []string `yaml:"trig_async"`
 	ExitOnTrig bool     `yaml:"-"`
 	Env        []*Env   `yaml:"env"`
 	Format     struct {
@@ -27,7 +27,7 @@ type Rule struct {
 	Debounce  *int     `yaml:"debounce"`
 	Command   string   `yaml:"command"`
 	Trig      []string `yaml:"trig"`
-	TrigAsync bool     `yaml:"trig_async"`
+	TrigAsync []string `yaml:"trig_async"`
 	Env       []*Env   `yaml:"env"`
 }
 

@@ -66,8 +66,10 @@ format:
   fail: "\u001b[38;5;244m[{{.Time}}] \u001b[38;5;1m[{{.Title}}] \u001b[38;5;238m{{.Message}}\u001b[0m\n"
   command_ok: "\u001b[38;5;240m[{{.Time}}] [{{.Title}}] \u001b[0m{{.Message}}\n"
   command_err: "\u001b[38;5;240m[{{.Time}}] [{{.Title}}] \u001b[38;5;1m{{.Message}}\u001b[0m\n"
-trig: [start, buildNRun]  # will run on start
-trig_async: true
+trig: [start, buildNRun]  # will run start and after buildNRun
+trig_async: # will run test and async concurrently
+  - test
+  - async
 env:
   - name: PORT
     value: 2000
@@ -84,7 +86,6 @@ rules:
         value: development
       - name: %{BASE_FILE}% # replace from environment
         type: file
-    trig_async: false
     trig: 
       - done build
       - run
@@ -100,6 +101,8 @@ rules:
         type: file
     match: _test\.go$
     command: go test -cover {PKG}
+  - name: async
+    command: echo async
 ```
 
 Example base.env
