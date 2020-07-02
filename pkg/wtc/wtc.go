@@ -165,11 +165,8 @@ func Start(cfg *Config) {
 
 	logger = make(chan []byte, 256)
 	go func() {
-		for {
-			select {
-			case l := <-logger:
-				os.Stdout.Write(l)
-			}
+		for l := range logger {
+			os.Stdout.Write(l)
 		}
 	}()
 
@@ -314,8 +311,8 @@ func findAndTrig(async bool, key []string, pkg, path string) {
 				}
 
 				if async {
+					wg.Add(1)
 					go func() {
-						wg.Add(1)
 						defer wg.Done()
 						fn()
 					}()
