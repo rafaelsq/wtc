@@ -30,7 +30,7 @@ var (
 )
 
 var (
-	logger        chan []byte
+	logger        chan Line
 	templateRegex = regexp.MustCompile(`\{\{\.([^}]+)\}\}`)
 
 	TimeFormat = "15:04:05"
@@ -46,21 +46,11 @@ type Line struct {
 	Time    string
 	Title   string
 	Message string
+	IsErr   bool
 }
 
 func (l *Line) Log() {
-	logger <- []byte(templateRegex.ReplaceAllStringFunc(l.Type, func(k string) string {
-		switch k[3:][:len(k)-5] {
-		case "Time":
-			return time.Now().Format(TimeFormat)
-		case "Title":
-			return l.Title
-		case "Message":
-			return l.Message
-		default:
-			return ""
-		}
-	}))
+	logger <- *l
 }
 
 func getContext(label string) (context.Context, context.CancelFunc) {
@@ -163,10 +153,27 @@ func Start(cfg *Config) {
 		log.Fatal(err)
 	}
 
-	logger = make(chan []byte, 256)
+	logger = make(chan Line, 256)
 	go func() {
 		for l := range logger {
-			os.Stdout.Write(l)
+			output := []byte(templateRegex.ReplaceAllStringFunc(l.Type, func(k string) string {
+				switch k[3:][:len(k)-5] {
+				case "Time":
+					return time.Now().Format(TimeFormat)
+				case "Title":
+					return l.Title
+				case "Message":
+					return l.Message
+				default:
+					return ""
+				}
+			}))
+
+			if l.IsErr {
+				os.Stderr.Write(output)
+			} else {
+				os.Stdout.Write(output)
+			}
 		}
 	}()
 
@@ -231,6 +238,7 @@ func Start(cfg *Config) {
 								Type:    TypeFail,
 								Title:   rule.Name,
 								Message: err.Error(),
+								IsErr:   true,
 							}).Log()
 						}
 					}()
@@ -309,6 +317,7 @@ func findAndTrig(async bool, key []string, pkg, path string) {
 							Type:    TypeFail,
 							Title:   r.Name,
 							Message: err.Error(),
+							IsErr:   true,
 						}).Log()
 					}
 				}
@@ -333,6 +342,7 @@ func findAndTrig(async bool, key []string, pkg, path string) {
 				Type:    TypeFail,
 				Title:   s,
 				Message: "rule not found",
+				IsErr:   true,
 			}).Log()
 		}
 	}
@@ -477,6 +487,7 @@ func run(ctx context.Context, name, command string, env []string) error {
 					Type:    TypeCommandErr,
 					Title:   name,
 					Message: string(l),
+					IsErr:   true,
 				}).Log()
 			}
 		}()
