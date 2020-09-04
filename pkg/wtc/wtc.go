@@ -2,6 +2,7 @@ package wtc
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -27,10 +28,12 @@ var (
 	contextsLock       map[string]chan struct{}
 	ctxmutex           sync.Mutex
 	contextsLockMutext sync.Mutex
+	acquire            chan struct{}
+	BR                 = '\n'
 )
 
 var (
-	logger        chan Line
+	logger        chan Rune
 	templateRegex = regexp.MustCompile(`\{\{\.([^}]+)\}\}`)
 
 	TimeFormat = "15:04:05"
@@ -41,15 +44,16 @@ var (
 	TypeCommandErr = "\u001b[38;5;240m[{{.Time}}] [{{.Title}}] \u001b[38;5;1m{{.Message}}\u001b[0m\n"
 )
 
-type Line struct {
-	Type    string
-	Time    string
-	Title   string
-	Message string
-	IsErr   bool
+type Rune struct {
+	Type     string
+	Time     string
+	Title    string
+	Rune     rune
+	IsStderr bool
+	End      bool
 }
 
-func (l *Line) Log() {
+func (l *Rune) Log() {
 	logger <- *l
 }
 
@@ -153,27 +157,59 @@ func Start(cfg *Config) {
 		log.Fatal(err)
 	}
 
-	logger = make(chan Line, 256)
+	acquire = make(chan struct{}, 1)
+	logger = make(chan Rune, 1)
 	go func() {
-		for l := range logger {
-			output := []byte(templateRegex.ReplaceAllStringFunc(l.Type, func(k string) string {
+		var current string
+		var currentIsErr *bool
+		var currentOut *os.File
+		var currentArgs [][]byte
+		for r := range logger {
+			if r.End {
+				current = ""
+				currentIsErr = nil
+				continue
+			}
+
+			if r.Rune == 0 {
+				continue
+			}
+
+			output := []byte(templateRegex.ReplaceAllStringFunc(r.Type, func(k string) string {
 				switch k[3:][:len(k)-5] {
 				case "Time":
 					return time.Now().Format(TimeFormat)
 				case "Title":
-					return l.Title
-				case "Message":
-					return l.Message
+					return r.Title
 				default:
-					return ""
+					return k
 				}
 			}))
 
-			if l.IsErr {
-				os.Stderr.Write(output)
-			} else {
-				os.Stdout.Write(output)
+			args := bytes.Split(output, []byte("{{.Message}}"))
+
+			if r.Title != current || (currentIsErr == nil || r.IsStderr != *currentIsErr) {
+				// close current
+				if currentOut != nil {
+					(*currentOut).Write(currentArgs[1])
+				}
+
+				// set current
+				current = r.Title
+				currentIsErr = &[]bool{!!r.IsStderr}[0]
+				currentArgs = args
+
+				if r.IsStderr {
+					currentOut = os.Stderr
+				} else {
+					currentOut = os.Stdout
+				}
+
+				// write start
+				currentOut.Write(args[0])
 			}
+
+			fmt.Fprintf(currentOut, "%c", r.Rune)
 		}
 	}()
 
@@ -183,8 +219,12 @@ func Start(cfg *Config) {
 			os.Exit(0)
 		}
 
-		go findAndTrig(true, config.TrigAsync, "./", "./")
-		findAndTrig(false, config.Trig, "./", "./")
+		if len(config.TrigAsync) > 0 {
+			go findAndTrig(true, config.TrigAsync, "./", "./")
+		}
+		if len(config.Trig) > 0 {
+			findAndTrig(false, config.Trig, "./", "./")
+		}
 	}()
 
 	c := make(chan notify.EventInfo)
@@ -234,12 +274,7 @@ func Start(cfg *Config) {
 				if rule.Match != "" && retrieveRegexp(rule.Match).MatchString(path) {
 					go func() {
 						if err := trig(rule, pkg, path); err != nil {
-							(&Line{
-								Type:    TypeFail,
-								Title:   rule.Name,
-								Message: err.Error(),
-								IsErr:   true,
-							}).Log()
+							Log(rule.Name, TypeFail, err.Error(), true)
 						}
 					}()
 				}
@@ -304,6 +339,30 @@ func retrieveRegexp(pattern string) *regexp.Regexp {
 	return result
 }
 
+func Log(name, tpe, msg string, isStderr bool) {
+
+	acquire <- struct{}{}
+	defer func() {
+		<-acquire
+	}()
+
+	for _, c := range msg {
+		(&Rune{
+			Type:     tpe,
+			Title:    name,
+			Rune:     c,
+			IsStderr: isStderr,
+		}).Log()
+	}
+
+	(&Rune{
+		Type:     tpe,
+		Title:    name,
+		IsStderr: isStderr,
+		End:      true,
+	}).Log()
+}
+
 func findAndTrig(async bool, key []string, pkg, path string) {
 	var wg sync.WaitGroup
 	for _, s := range key {
@@ -313,12 +372,7 @@ func findAndTrig(async bool, key []string, pkg, path string) {
 				r := r
 				fn := func() {
 					if err := trig(r, pkg, path); err != nil {
-						(&Line{
-							Type:    TypeFail,
-							Title:   r.Name,
-							Message: err.Error(),
-							IsErr:   true,
-						}).Log()
+						Log(r.Name, TypeFail, err.Error(), true)
 					}
 				}
 
@@ -338,12 +392,7 @@ func findAndTrig(async bool, key []string, pkg, path string) {
 		}
 
 		if !found {
-			(&Line{
-				Type:    TypeFail,
-				Title:   s,
-				Message: "rule not found",
-				IsErr:   true,
-			}).Log()
+			Log(s, TypeFail, "rule not found", true)
 		}
 	}
 
@@ -364,9 +413,6 @@ func trig(rule *Rule, pkg, path string) error {
 	contextsLockMutext.Unlock()
 
 	queue <- struct{}{}
-	defer func() {
-		<-queue
-	}()
 
 	debounce := config.Debounce
 	if rule.Debounce != nil {
@@ -375,6 +421,7 @@ func trig(rule *Rule, pkg, path string) error {
 
 	select {
 	case <-ctx.Done():
+		<-queue
 		return nil
 	case <-time.After(time.Duration(debounce) * time.Millisecond):
 	}
@@ -398,6 +445,7 @@ func trig(rule *Rule, pkg, path string) error {
 			}
 
 			body := replaceEnvRe.ReplaceAllStringFunc(string(b), func(k string) string {
+				<-queue
 				return keys[strings.TrimSuffix(strings.TrimPrefix(k, "%{"), "}%")]
 			})
 
@@ -420,80 +468,98 @@ func trig(rule *Rule, pkg, path string) error {
 	}
 
 	if !config.NoTrace {
-		(&Line{
-			Type:    TypeOK,
-			Title:   rule.Name,
-			Message: cmd,
-		}).Log()
+		Log(rule.Name, TypeOK, cmd, false)
 	}
 
 	err := run(ctx, rule.Name, cmd, envs)
 	if err == context.Canceled {
+		<-queue
 		return nil
 	}
 
-	defer cancel()
 	if err != nil {
+		cancel()
 		return err
 	}
 
-	go findAndTrig(true, rule.TrigAsync, pkg, path)
-	findAndTrig(false, rule.Trig, pkg, path)
+	<-queue
+	cancel()
+
+	if len(rule.TrigAsync) > 0 {
+		go findAndTrig(true, rule.TrigAsync, pkg, path)
+	}
+
+	if len(rule.Trig) > 0 {
+		findAndTrig(false, rule.Trig, pkg, path)
+	}
 
 	return nil
+}
+
+func pipeChar(tpe, id string, isStderr bool) io.WriteCloser {
+	rr, ww := io.Pipe()
+
+	reader := bufio.NewReader(rr)
+	go func() {
+		defer rr.Close()
+
+		me := false
+
+		cancel := make(chan struct{})
+
+		for {
+			r, _, err := reader.ReadRune()
+
+			if !me {
+				acquire <- struct{}{}
+				me = true
+				go func() {
+					<-cancel
+				}()
+			}
+
+			cancel <- struct{}{}
+
+			if err != nil {
+				(&Rune{Type: tpe, Title: id, End: true, IsStderr: isStderr}).Log()
+				me = false
+				<-acquire
+				return
+			}
+
+			if r == BR {
+				(&Rune{Type: tpe, Title: id, End: true, IsStderr: isStderr}).Log()
+				me = false
+				<-acquire
+				continue
+			}
+
+			(&Rune{Type: tpe, Title: id, Rune: r, IsStderr: isStderr}).Log()
+
+			go func() {
+				select {
+				case <-cancel:
+				case <-time.After(time.Second / 2):
+					me = false
+					<-acquire
+				}
+			}()
+		}
+	}()
+
+	return ww
 }
 
 func run(ctx context.Context, name, command string, env []string) error {
 	cmd := exec.Command("sh", "-c", command)
 
-	{
-		rr, ww := io.Pipe()
-		defer ww.Close()
+	stdout := pipeChar(TypeCommandOK, name, false)
+	cmd.Stdout = stdout
+	defer stdout.Close()
 
-		reader := bufio.NewReader(rr)
-		go func() {
-			defer rr.Close()
-			for {
-				l, _, err := reader.ReadLine()
-				if err == io.EOF {
-					return
-				}
-
-				(&Line{
-					Type:    TypeCommandOK,
-					Title:   name,
-					Message: string(l),
-				}).Log()
-			}
-		}()
-
-		cmd.Stdout = ww
-	}
-
-	{
-		rr, ww := io.Pipe()
-		defer ww.Close()
-
-		reader := bufio.NewReader(rr)
-		go func() {
-			defer rr.Close()
-			for {
-				l, _, err := reader.ReadLine()
-				if err == io.EOF {
-					return
-				}
-
-				(&Line{
-					Type:    TypeCommandErr,
-					Title:   name,
-					Message: string(l),
-					IsErr:   true,
-				}).Log()
-			}
-		}()
-
-		cmd.Stderr = ww
-	}
+	stderr := pipeChar(TypeCommandErr, name, true)
+	cmd.Stderr = stderr
+	defer stderr.Close()
 
 	cmd.Env = env
 
