@@ -445,7 +445,6 @@ func trig(rule *Rule, pkg, path string) error {
 			}
 
 			body := replaceEnvRe.ReplaceAllStringFunc(string(b), func(k string) string {
-				<-queue
 				return keys[strings.TrimSuffix(strings.TrimPrefix(k, "%{"), "}%")]
 			})
 
@@ -478,6 +477,7 @@ func trig(rule *Rule, pkg, path string) error {
 	}
 
 	if err != nil {
+		<-queue
 		cancel()
 		return err
 	}
