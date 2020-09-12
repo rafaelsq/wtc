@@ -18,7 +18,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/rjeczalik/notify"
+	"github.com/radovskyb/watcher"
 	yaml "gopkg.in/yaml.v2"
 )
 
@@ -227,59 +227,79 @@ func Start(cfg *Config) {
 		}
 	}()
 
-	c := make(chan notify.EventInfo)
-
-	if err := notify.Watch("./...", c, notify.All); err != nil {
-		log.Fatal(err)
-	}
+	w := watcher.New()
+	w.FilterOps(watcher.Write, watcher.Remove, watcher.Create)
 
 	exitSignal := make(chan os.Signal, 1)
-	signal.Notify(exitSignal, os.Interrupt)
+	signal.Notify(exitSignal, syscall.SIGINT, syscall.SIGTERM)
 
-	for {
-		select {
-		case <-exitSignal:
-			notify.Stop(c)
-			cancelAll()
+	exit := make(chan struct{})
 
-			for _, r := range config.Rules {
-				contextsLockMutext.Lock()
-				if l, exists := contextsLock[r.Name]; exists {
+	go func() {
+		defer close(exit)
+		for {
+			select {
+			case err := <-w.Error:
+				log.Fatal(err)
+			case <-w.Closed:
+				return
+			case <-exitSignal:
+				cancelAll()
+
+				for _, r := range config.Rules {
+					contextsLockMutext.Lock()
+					if l, exists := contextsLock[r.Name]; exists {
+						contextsLockMutext.Unlock()
+						l <- struct{}{}
+						<-l
+						continue
+					}
 					contextsLockMutext.Unlock()
-					l <- struct{}{}
-					<-l
-					continue
 				}
-				contextsLockMutext.Unlock()
-			}
-			return
-		case ei := <-c:
-			path := ei.Path()
-			pieces := strings.Split("."+strings.Split(path, dir)[1], "/")
-			pkg := strings.Join(pieces[:len(pieces)-1], "/")
 
-			if config.Ignore != "" {
-				if retrieveRegexp(config.Ignore).MatchString(path) {
-					continue
-				}
-			}
-
-			for _, rule := range config.Rules {
-				rule := rule
-
-				if rule.Ignore != "" && retrieveRegexp(rule.Ignore).MatchString(path) {
+				w.Close()
+				return
+			case e := <-w.Event:
+				if e.IsDir() {
 					continue
 				}
 
-				if rule.Match != "" && retrieveRegexp(rule.Match).MatchString(path) {
-					go func() {
-						if err := trig(rule, pkg, path); err != nil {
-							Log(rule.Name, TypeFail, err.Error(), true)
-						}
-					}()
+				path := e.Path
+
+				pieces := strings.Split("."+strings.Split(path, dir)[1], "/")
+				pkg := strings.Join(pieces[:len(pieces)-1], "/")
+
+				if config.Ignore != "" {
+					if retrieveRegexp(config.Ignore).MatchString(path) {
+						continue
+					}
+				}
+
+				for _, rule := range config.Rules {
+					rule := rule
+
+					if rule.Ignore != "" && retrieveRegexp(rule.Ignore).MatchString(path) {
+						continue
+					}
+
+					if rule.Match != "" && retrieveRegexp(rule.Match).MatchString(path) {
+						go func() {
+							if err := trig(rule, pkg, path); err != nil {
+								Log(rule.Name, TypeFail, err.Error(), true)
+							}
+						}()
+					}
 				}
 			}
 		}
+	}()
+
+	if err := w.AddRecursive("."); err != nil {
+		log.Fatalln(err)
+	}
+
+	if err := w.Start(time.Millisecond * 100); err != nil {
+		log.Fatalln(err)
 	}
 }
 
