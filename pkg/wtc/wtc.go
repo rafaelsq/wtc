@@ -165,39 +165,35 @@ func Start(cfg *Config) {
 		var currentOut *os.File
 		var currentArgs [][]byte
 		for r := range logger {
+
 			if r.End {
 				current = ""
 				currentIsErr = nil
 				continue
 			}
 
-			if r.Rune == 0 {
-				continue
-			}
-
-			output := []byte(templateRegex.ReplaceAllStringFunc(r.Type, func(k string) string {
-				switch k[3:][:len(k)-5] {
-				case "Time":
-					return time.Now().Format(TimeFormat)
-				case "Title":
-					return r.Title
-				default:
-					return k
-				}
-			}))
-
-			args := bytes.Split(output, []byte("{{.Message}}"))
-
-			if r.Title != current || (currentIsErr == nil || r.IsStderr != *currentIsErr) {
+			if r.Rune == BR || (r.Title != current || (currentIsErr == nil || r.IsStderr != *currentIsErr)) {
 				// close current
 				if currentOut != nil {
 					(*currentOut).Write(currentArgs[1])
 				}
 
+				// parse tpl
+				output := []byte(templateRegex.ReplaceAllStringFunc(r.Type, func(k string) string {
+					switch k[3:][:len(k)-5] {
+					case "Time":
+						return time.Now().Format(TimeFormat)
+					case "Title":
+						return r.Title
+					default:
+						return k
+					}
+				}))
+
 				// set current
 				current = r.Title
 				currentIsErr = &[]bool{!!r.IsStderr}[0]
-				currentArgs = args
+				currentArgs = bytes.Split(output, []byte("{{.Message}}"))
 
 				if r.IsStderr {
 					currentOut = os.Stderr
@@ -206,7 +202,11 @@ func Start(cfg *Config) {
 				}
 
 				// write start
-				currentOut.Write(args[0])
+				currentOut.Write(currentArgs[0])
+			}
+
+			if r.Rune == 0 || r.Rune == BR {
+				continue
 			}
 
 			fmt.Fprintf(currentOut, "%c", r.Rune)
@@ -528,7 +528,7 @@ func pipeChar(tpe, id string, isStderr bool) io.WriteCloser {
 			}
 
 			if r == BR {
-				(&Rune{Type: tpe, Title: id, End: true, IsStderr: isStderr}).Log()
+				(&Rune{Type: tpe, Title: id, Rune: r, IsStderr: isStderr}).Log()
 				me = false
 				<-acquire
 				continue
