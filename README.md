@@ -14,6 +14,7 @@ From master branch
 You can also install by release(linux64 only);  
 `$ curl -sfL --silent https://github.com/rafaelsq/wtc/releases/latest/download/wtc.linux64.tar.gz | tar -xzv && mv wtc $(go env GOPATH)/bin/`
 
+Or just head to the [releases page](https://github.com/rafaelsq/wtc/releases) and download the latest version for you platform.
 
 ## Compile from source
 
