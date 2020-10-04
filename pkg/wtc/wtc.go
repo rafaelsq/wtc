@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/radovskyb/watcher"
-	yaml "gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v2"
 )
 
 var (
@@ -106,7 +106,7 @@ func ParseArgs() *Config {
 	} else if has && flag.NArg() == 1 {
 		trigs = flag.Arg(0)
 	} else if !has && flag.NArg() < 2 {
-		fmt.Fprintf(os.Stderr, "No [.]wtc.yaml or valid command provided.\n")
+		_, _ = fmt.Fprintf(os.Stderr, "No [.]wtc.yaml or valid command provided.\n")
 		flag.CommandLine.Usage()
 		os.Exit(1)
 	} else if !has {
@@ -175,7 +175,7 @@ func Start(cfg *Config) {
 			if r.Rune == BR || (r.Title != current || (currentIsErr == nil || r.IsStderr != *currentIsErr)) {
 				// close current
 				if currentOut != nil {
-					(*currentOut).Write(currentArgs[1])
+					_, err = (*currentOut).Write(currentArgs[1])
 				}
 
 				// parse tpl
@@ -192,7 +192,7 @@ func Start(cfg *Config) {
 
 				// set current
 				current = r.Title
-				currentIsErr = &[]bool{!!r.IsStderr}[0]
+				currentIsErr = &[]bool{r.IsStderr}[0]
 				currentArgs = bytes.Split(output, []byte("{{.Message}}"))
 
 				if r.IsStderr {
@@ -202,14 +202,14 @@ func Start(cfg *Config) {
 				}
 
 				// write start
-				currentOut.Write(currentArgs[0])
+				_, err = currentOut.Write(currentArgs[0])
 			}
 
 			if r.Rune == 0 || r.Rune == BR {
 				continue
 			}
 
-			fmt.Fprintf(currentOut, "%c", r.Rune)
+			_, err = fmt.Fprintf(currentOut, "%c", r.Rune)
 		}
 	}()
 
@@ -471,7 +471,7 @@ func trig(rule *Rule, pkg, path string) error {
 			for _, l := range strings.Split(body, "\n") {
 				l := strings.TrimSpace(l)
 				if len(l) > 0 && l[0] != '#' {
-					pieces := strings.Split(string(exportRe.ReplaceAllString(l, "")), "=")
+					pieces := strings.Split(exportRe.ReplaceAllString(l, ""), "=")
 					if len(pieces) > 1 {
 						keys[strings.TrimSpace(pieces[0])] = pieces[1]
 					}
