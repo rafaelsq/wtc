@@ -23,13 +23,15 @@ import (
 )
 
 var (
-	appContext         context.Context
-	contexts           map[string]context.CancelFunc
-	contextsLock       map[string]chan struct{}
-	ctxmutex           sync.Mutex
-	contextsLockMutext sync.Mutex
-	acquire            chan struct{}
-	BR                 = '\n'
+	appContext          context.Context
+	contexts            map[string]context.CancelFunc
+	contextsLock        map[string]chan struct{}
+	ctxmutex            sync.Mutex
+	contextsLockMutext  sync.Mutex
+	acquire             chan struct{}
+	BR                  = '\n'
+	envFileLastModified = make(map[string]time.Time)
+	envFileKeys         = make(map[string]string)
 )
 
 var (
@@ -458,23 +460,37 @@ func trig(rule *Rule, pkg, path string) error {
 	}
 	for _, e := range append(config.Env, rule.Env...) {
 		if e.Type == "file" {
-			b, err := ioutil.ReadFile(e.Name)
+			fileInfo, err := os.Stat(e.Name)
 			if err != nil {
 				panic(err)
 			}
 
-			body := replaceEnvRe.ReplaceAllStringFunc(string(b), func(k string) string {
-				return keys[strings.TrimSuffix(strings.TrimPrefix(k, "%{"), "}%")]
-			})
+			if lastModified, ok := envFileLastModified[e.Name]; !ok ||
+				fileInfo.ModTime().Sub(lastModified) > 0 {
+				b, err := ioutil.ReadFile(e.Name)
+				if err != nil {
+					panic(err)
+				}
 
-			for _, l := range strings.Split(body, "\n") {
-				l := strings.TrimSpace(l)
-				if len(l) > 0 && l[0] != '#' {
-					pieces := strings.Split(exportRe.ReplaceAllString(l, ""), "=")
-					if len(pieces) > 1 {
-						keys[strings.TrimSpace(pieces[0])] = pieces[1]
+				body := replaceEnvRe.ReplaceAllStringFunc(string(b), func(k string) string {
+					return keys[strings.TrimSuffix(strings.TrimPrefix(k, "%{"), "}%")]
+				})
+
+				for _, l := range strings.Split(body, "\n") {
+					l := strings.TrimSpace(l)
+					if len(l) > 0 && l[0] != '#' {
+						pieces := strings.Split(exportRe.ReplaceAllString(l, ""), "=")
+						if len(pieces) > 1 {
+							envFileKeys[strings.TrimSpace(pieces[0])] = pieces[1]
+						}
 					}
 				}
+
+				envFileLastModified[e.Name] = fileInfo.ModTime()
+			}
+
+			for k, v := range envFileKeys {
+				keys[k] = v
 			}
 		} else {
 			keys[strings.TrimSpace(e.Name)] = strings.TrimSpace(e.Value)
