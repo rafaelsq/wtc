@@ -35,6 +35,8 @@ var (
 var (
 	logger        chan Rune
 	templateRegex = regexp.MustCompile(`\{\{\.([^}]+)\}\}`)
+	exportRe      = regexp.MustCompile(`(i?)export\s+`)
+	replaceEnvRe  = regexp.MustCompile(`(i?)\%\{[A-Z0-9_]+\}\%`)
 
 	TimeFormat = "15:04:05"
 
@@ -447,9 +449,6 @@ func trig(rule *Rule, pkg, path string) error {
 	}
 
 	cmd := strings.Replace(strings.Replace(rule.Command, "{PKG}", pkg, -1), "{FILE}", path, -1)
-
-	exportRe := regexp.MustCompile(`(i?)export\s+`)
-	replaceEnvRe := regexp.MustCompile(`(i?)\%\{[A-Z0-9_]+\}\%`)
 
 	keys := map[string]string{}
 	envs := os.Environ()
