@@ -460,37 +460,38 @@ func trig(rule *Rule, pkg, path string) error {
 	}
 	for _, e := range append(config.Env, rule.Env...) {
 		if e.Type == "file" {
-			fileInfo, err := os.Stat(e.Name)
-			if err != nil {
-				panic(err)
-			}
-
-			if lastModified, ok := envFileLastModified[e.Name]; !ok ||
-				fileInfo.ModTime().Sub(lastModified) > 0 {
-				b, err := ioutil.ReadFile(e.Name)
+			var body string
+			{
+				fileInfo, err := os.Stat(e.Name)
 				if err != nil {
 					panic(err)
 				}
 
-				body := replaceEnvRe.ReplaceAllStringFunc(string(b), func(k string) string {
-					return keys[strings.TrimSuffix(strings.TrimPrefix(k, "%{"), "}%")]
-				})
-
-				for _, l := range strings.Split(body, "\n") {
-					l := strings.TrimSpace(l)
-					if len(l) > 0 && l[0] != '#' {
-						pieces := strings.Split(exportRe.ReplaceAllString(l, ""), "=")
-						if len(pieces) > 1 {
-							envFileKeys[strings.TrimSpace(pieces[0])] = pieces[1]
-						}
+				if lastModified, ok := envFileLastModified[e.Name]; !ok || fileInfo.ModTime().Sub(lastModified) > 0 {
+					b, err := ioutil.ReadFile(e.Name)
+					if err != nil {
+						panic(err)
 					}
+
+					envFileKeys[e.Name] = string(b)
+					envFileLastModified[e.Name] = fileInfo.ModTime()
 				}
 
-				envFileLastModified[e.Name] = fileInfo.ModTime()
+				body = envFileKeys[e.Name]
 			}
 
-			for k, v := range envFileKeys {
-				keys[k] = v
+			body = replaceEnvRe.ReplaceAllStringFunc(body, func(k string) string {
+				return keys[strings.TrimSuffix(strings.TrimPrefix(k, "%{"), "}%")]
+			})
+
+			for _, l := range strings.Split(body, "\n") {
+				l := strings.TrimSpace(l)
+				if len(l) > 0 && l[0] != '#' {
+					pieces := strings.Split(exportRe.ReplaceAllString(l, ""), "=")
+					if len(pieces) > 1 {
+						keys[strings.TrimSpace(pieces[0])] = pieces[1]
+					}
+				}
 			}
 		} else {
 			keys[strings.TrimSpace(e.Name)] = strings.TrimSpace(e.Value)
