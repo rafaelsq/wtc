@@ -6,7 +6,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"os"
@@ -18,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/creack/pty"
 	"github.com/radovskyb/watcher"
 	"gopkg.in/yaml.v2"
 )
@@ -532,8 +532,11 @@ func trig(rule *Rule, pkg, path string) error {
 	return nil
 }
 
-func pipeChar(tpe, id string, isStderr bool) io.WriteCloser {
-	rr, ww := io.Pipe()
+func pipeChar(tpe, id string, isStderr bool) (*os.File, error) {
+	ww, rr, err := pty.Open()
+	if err != nil {
+		return nil, err
+	}
 
 	reader := bufio.NewReader(rr)
 	go func() {
@@ -583,27 +586,35 @@ func pipeChar(tpe, id string, isStderr bool) io.WriteCloser {
 		}
 	}()
 
-	return ww
+	return ww, nil
 }
 
 func run(ctx context.Context, name, command string, env []string) error {
 	cmd := exec.Command("sh", "-c", command)
 
-	stdout := pipeChar(TypeCommandOK, name, false)
+	stdout, err := pipeChar(TypeCommandOK, name, false)
+	if err != nil {
+		return err
+	}
+	cmd.Stdin = stdout
 	cmd.Stdout = stdout
 	defer stdout.Close()
 
-	stderr := pipeChar(TypeCommandErr, name, true)
+	stderr, _ := pipeChar(TypeCommandErr, name, true)
+	if err != nil {
+		return err
+	}
 	cmd.Stderr = stderr
 	defer stderr.Close()
 
 	cmd.Env = env
 
-	// ask Go to create a new Process Group for this process
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setctty: true,
+		Setsid:  true,
+	}
 
-	err := cmd.Start()
-	if err != nil {
+	if err := cmd.Start(); err != nil {
 		return err
 	}
 
