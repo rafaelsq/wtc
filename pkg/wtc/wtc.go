@@ -6,6 +6,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
@@ -532,87 +533,76 @@ func trig(rule *Rule, pkg, path string) error {
 	return nil
 }
 
-func pipeChar(tpe, id string, isStderr bool) (*os.File, error) {
-	ww, rr, err := pty.Open()
-	if err != nil {
-		return nil, err
-	}
+func pipeChar(rr io.Reader, tpe, id string, isStderr bool) {
 
 	reader := bufio.NewReader(rr)
-	go func() {
-		defer rr.Close()
 
-		me := false
+	me := false
 
-		cancel := make(chan struct{})
+	cancel := make(chan struct{})
 
-		for {
-			r, _, err := reader.ReadRune()
+	for {
+		r, _, err := reader.ReadRune()
 
-			if !me {
-				acquire <- struct{}{}
-				me = true
-				go func() {
-					<-cancel
-				}()
-			}
-
-			cancel <- struct{}{}
-
-			if err != nil {
-				(&Rune{Type: tpe, Title: id, End: true, IsStderr: isStderr}).Log()
-				me = false
-				<-acquire
-				return
-			}
-
-			if r == BR {
-				(&Rune{Type: tpe, Title: id, Rune: r, IsStderr: isStderr}).Log()
-				me = false
-				<-acquire
-				continue
-			}
-
-			(&Rune{Type: tpe, Title: id, Rune: r, IsStderr: isStderr}).Log()
-
+		if !me {
+			acquire <- struct{}{}
+			me = true
 			go func() {
-				select {
-				case <-cancel:
-				case <-time.After(time.Second / 2):
-					me = false
-					<-acquire
-				}
+				<-cancel
 			}()
 		}
-	}()
 
-	return ww, nil
+		cancel <- struct{}{}
+
+		if err != nil {
+			(&Rune{Type: tpe, Title: id, End: true, IsStderr: isStderr}).Log()
+			me = false
+			<-acquire
+			return
+		}
+
+		if r == BR {
+			(&Rune{Type: tpe, Title: id, Rune: r, IsStderr: isStderr}).Log()
+			me = false
+			<-acquire
+			continue
+		}
+
+		(&Rune{Type: tpe, Title: id, Rune: r, IsStderr: isStderr}).Log()
+
+		go func() {
+			select {
+			case <-cancel:
+			case <-time.After(time.Second / 2):
+				me = false
+				<-acquire
+			}
+		}()
+	}
 }
 
 func run(ctx context.Context, name, command string, env []string) error {
 	cmd := exec.Command("sh", "-c", command)
 
-	stdout, err := pipeChar(TypeCommandOK, name, false)
+	stdout, tty, err := pty.Open()
 	if err != nil {
 		return err
 	}
-	cmd.Stdin = stdout
-	cmd.Stdout = stdout
-	defer stdout.Close()
+	defer tty.Close()
 
-	stderr, _ := pipeChar(TypeCommandErr, name, true)
+	stderr, tty2, err := pty.Open()
 	if err != nil {
 		return err
 	}
-	cmd.Stderr = stderr
-	defer stderr.Close()
+	defer tty2.Close()
+
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = tty
+	cmd.Stderr = tty2
 
 	cmd.Env = env
 
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setctty: true,
-		Setsid:  true,
-	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	if err := cmd.Start(); err != nil {
 		return err
@@ -630,6 +620,9 @@ func run(ctx context.Context, name, command string, env []string) error {
 		}
 		close(exit)
 	}()
+
+	go pipeChar(stdout, TypeCommandOK, name, false)
+	go pipeChar(stderr, TypeCommandErr, name, true)
 
 	err = cmd.Wait()
 	if err != nil && uint32(cmd.ProcessState.Sys().(syscall.WaitStatus)) == uint32(syscall.SIGKILL) {
