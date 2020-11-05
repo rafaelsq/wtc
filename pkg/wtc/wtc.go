@@ -602,7 +602,7 @@ func run(ctx context.Context, name, command string, env []string) error {
 
 	cmd.Env = env
 
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 
 	if err := cmd.Start(); err != nil {
 		return err
