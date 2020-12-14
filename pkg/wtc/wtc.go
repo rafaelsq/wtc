@@ -460,7 +460,11 @@ func trig(rule *Rule, pkg, path string) error {
 		keys[pieces[0]] = pieces[1]
 	}
 	for _, e := range append(config.Env, rule.Env...) {
-		if e.Type == "file" {
+		if strings.ToLower(e.Type) == "file" {
+			if e.Name == "" {
+				panic(fmt.Errorf("field \"name\" must point to a file"))
+			}
+
 			var body string
 			{
 				fileInfo, err := os.Stat(e.Name)
