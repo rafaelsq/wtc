@@ -74,8 +74,8 @@ trig_async: # will run test and async concurrently
 env:
   - name: PORT
     value: 2000
-  - name: BASE_FILE
-    value: ./base.env
+  - type: file
+    name: ./base.env
 rules:
   - name: start
   - name: buildNRun
@@ -111,7 +111,7 @@ Example base.env
 ```bash
 export PORT=3000
 
-# replace from environment
+# will be replaced by the environment variable
 ENVIRONMENT=%{ENV}%
 ```
 
