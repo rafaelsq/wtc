@@ -586,7 +586,9 @@ func pipeChar(rr io.Reader, tpe, id string, isStderr bool) {
 }
 
 func run(ctx context.Context, name, command string, env []string) error {
-	cmd := exec.Command("sh", "-c", command)
+
+	args := strings.Fields(command)
+	cmd := exec.Command(args[0], args[1:]...)
 
 	stdout, tty, err := pty.Open()
 	if err != nil {
