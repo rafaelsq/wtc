@@ -335,7 +335,7 @@ func readConfig(config *Config, filePath string) (bool, error) {
 		keys := make(map[string]string, len(envs))
 		for _, v := range envs {
 			pieces := strings.Split(v, "=")
-			keys[pieces[0]] = pieces[1]
+			keys[pieces[0]] = strings.Join(pieces[1:], "=")
 		}
 
 		replaceEnvRe := regexp.MustCompile(`(i?)\%\{[A-Z0-9_]+\}\%`)
@@ -457,7 +457,7 @@ func trig(rule *Rule, pkg, path string) error {
 	envs := os.Environ()
 	for _, v := range envs {
 		pieces := strings.Split(v, "=")
-		keys[pieces[0]] = pieces[1]
+		keys[pieces[0]] = strings.Join(pieces[1:], "=")
 	}
 	for _, e := range append(config.Env, rule.Env...) {
 		if strings.ToLower(e.Type) == "file" {
@@ -494,7 +494,7 @@ func trig(rule *Rule, pkg, path string) error {
 				if len(l) > 0 && l[0] != '#' {
 					pieces := strings.Split(exportRe.ReplaceAllString(l, ""), "=")
 					if len(pieces) > 1 {
-						keys[strings.TrimSpace(pieces[0])] = pieces[1]
+						keys[strings.TrimSpace(pieces[0])] = strings.Join(pieces[1:], "=")
 					}
 				}
 			}
