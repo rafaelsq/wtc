@@ -1,6 +1,6 @@
 module github.com/rafaelsq/wtc
 
-go 1.13
+go 1.17
 
 require (
 	github.com/creack/pty v1.1.11

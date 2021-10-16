@@ -1,0 +1,14 @@
+run:
+  timeout: 1m
+
+linters:
+  enable:
+    - lll
+    - gofmt
+    - revive
+    - exportloopref
+    - unparam
+
+linters-settings:
+  lll:
+    line-length: 130

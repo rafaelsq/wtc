@@ -84,9 +84,9 @@ func ParseArgs() *Config {
 		fmt.Fprintf(
 			flag.CommandLine.Output(),
 			"USAGE:\nwtc [[flags] [regex command]]\n"+
-				"\tex.: wtc\n\t    // will read [.]wtc.y[a]ml\n"+
-				"\tex.: wtc \"_test\\.go$\" \"go test -cover {PKG}\"\n\n"+
-				"wtc [flags]] [rule-name]\n\tex.: wtc -t rule-name\n\t     wtc --no-trace \"rule ruleb\"\n"+
+				"\te.g.: wtc\n\t    // will read [.]wtc.y[a]ml\n"+
+				"\te.g.: wtc \"_test\\.go$\" \"go test -cover {PKG}\"\n\n"+
+				"wtc [flags]] [rule-name]\n\te.g.: wtc -t rule-name\n\t     wtc --no-trace \"rule ruleb\"\n"+
 				"FLAGS:\n",
 		)
 		flag.PrintDefaults()
@@ -102,7 +102,7 @@ func ParseArgs() *Config {
 	flag.StringVar(&configFilePath, "f", "", "wtc config file (default try to find [.]wtc.y[a]ml)")
 
 	var trigs string
-	flag.StringVar(&trigs, "t", "", "trig one or more rules by name\n\tex.: wtc -t ruleA\n\t     wtc -t \"ruleA ruleB\"")
+	flag.StringVar(&trigs, "t", "", "trig one or more rules by name\n\te.g.: wtc -t ruleA\n\t     wtc -t \"ruleA ruleB\"")
 
 	flag.Parse()
 
@@ -181,6 +181,9 @@ func Start(cfg *Config) {
 				// close current
 				if currentOut != nil {
 					_, err = (*currentOut).Write(currentArgs[1])
+					if err != nil {
+						log.Println(err)
+					}
 				}
 
 				// parse tpl
@@ -208,6 +211,9 @@ func Start(cfg *Config) {
 
 				// write start
 				_, err = currentOut.Write(currentArgs[0])
+				if err != nil {
+					log.Println(err)
+				}
 			}
 
 			if r.Rune == 0 || r.Rune == BR {
@@ -215,6 +221,9 @@ func Start(cfg *Config) {
 			}
 
 			_, err = fmt.Fprintf(currentOut, "%c", r.Rune)
+			if err != nil {
+				log.Println(err)
+			}
 		}
 	}()
 
@@ -462,20 +471,20 @@ func trig(rule *Rule, pkg, path string) error {
 	for _, e := range append(config.Env, rule.Env...) {
 		if strings.ToLower(e.Type) == "file" {
 			if e.Name == "" {
-				panic(fmt.Errorf("field \"name\" must point to a file"))
+				log.Fatal("field \"name\" must point to a file")
 			}
 
 			var body string
 			{
 				fileInfo, err := os.Stat(e.Name)
 				if err != nil {
-					panic(err)
+					log.Fatal(err)
 				}
 
 				if lastModified, ok := envFileLastModified[e.Name]; !ok || fileInfo.ModTime().Sub(lastModified) > 0 {
 					b, err := ioutil.ReadFile(e.Name)
 					if err != nil {
-						panic(err)
+						log.Fatal(err)
 					}
 
 					envFileKeys[e.Name] = string(b)
