@@ -106,15 +106,20 @@ func ParseArgs() *Config {
 
 	flag.Parse()
 
-	if has, err := readConfig(config, configFilePath); err != nil {
+	ok, err := readConfig(config, configFilePath)
+	if err != nil {
 		log.Fatal(err)
-	} else if has && flag.NArg() == 1 {
+	}
+
+	if ok && flag.NArg() == 1 {
 		trigs = flag.Arg(0)
-	} else if !has && flag.NArg() < 2 {
-		_, _ = fmt.Fprintf(os.Stderr, "No [.]wtc.yaml or valid command provided.\n")
-		flag.CommandLine.Usage()
-		os.Exit(1)
-	} else if !has {
+	} else {
+		if flag.NArg() < 2 {
+			_, _ = fmt.Fprintf(os.Stderr, "No [.]wtc.yaml or valid command provided.\n")
+			flag.CommandLine.Usage()
+			os.Exit(2)
+		}
+
 		config.Rules = append(config.Rules, &Rule{
 			Name:    "run",
 			Match:   flag.Arg(0),
@@ -460,7 +465,7 @@ func trig(rule *Rule, pkg, path string) error {
 	case <-time.After(time.Duration(debounce) * time.Millisecond):
 	}
 
-	cmd := strings.Replace(strings.Replace(rule.Command, "{PKG}", pkg, -1), "{FILE}", path, -1)
+	cmd := strings.ReplaceAll(strings.ReplaceAll(rule.Command, "{PKG}", pkg), "{FILE}", path)
 
 	keys := map[string]string{}
 	envs := os.Environ()
