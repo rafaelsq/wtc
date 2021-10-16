@@ -9,7 +9,7 @@ WTC is a simple utility you can use to watch files and execute commands.
 ## Install
 
 From master branch  
-`$ go get -u github.com/rafaelsq/wtc`  
+`$ go install github.com/rafaelsq/wtc@latest`  
 
 You can also install by release(linux64 only);  
 `$ curl -sfL --silent https://github.com/rafaelsq/wtc/releases/latest/download/wtc.linux64.tar.gz | tar -xzv && mv wtc $(go env GOPATH)/bin/`
@@ -29,12 +29,12 @@ Before you begin, ensure you have installed the latest version of Go. See the [G
 $ wtc --help
 USAGE:
 wtc [[flags] [regex command]]
-        ex.: wtc
+        e.g.: wtc
             // will read [.]wtc.y[a]ml
-        ex.: wtc "_test\.go$" "go test -cover {PKG}"
+        e.g.: wtc "_test\.go$" "go test -cover {PKG}"
 
 wtc [flags]] [rule-name]
-        ex.: wtc -t rule-name
+        e.g.: wtc -t rule-name
              wtc --no-trace "rule ruleb"
 FLAGS:
   -debounce int
@@ -47,7 +47,7 @@ FLAGS:
         disable messages.
   -t string
         trig one or more rules by name
-                ex.: wtc -t ruleA
+                e.g.: wtc -t ruleA
                      wtc -t "ruleA ruleB"
 ```
 
