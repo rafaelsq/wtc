@@ -111,8 +111,10 @@ func ParseArgs() *Config {
 		log.Fatal(err)
 	}
 
-	if ok && flag.NArg() == 1 {
-		trigs = flag.Arg(0)
+	if ok {
+		if flag.NArg() == 1 {
+			trigs = flag.Arg(0)
+		}
 	} else {
 		if flag.NArg() < 2 {
 			_, _ = fmt.Fprintf(os.Stderr, "No [.]wtc.yaml or valid command provided.\n")
