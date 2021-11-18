@@ -278,9 +278,7 @@ func Start(cfg *Config) {
 					}
 					contextsLockMutext.Unlock()
 				}
-
 				w.Close()
-				return
 			case e := <-w.Event:
 				if e.IsDir() {
 					continue
@@ -323,6 +321,8 @@ func Start(cfg *Config) {
 	if err := w.Start(time.Millisecond * 100); err != nil {
 		log.Fatalln(err)
 	}
+
+	<-exit
 }
 
 func findFile() ([]byte, error) {
