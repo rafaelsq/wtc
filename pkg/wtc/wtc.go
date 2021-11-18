@@ -24,15 +24,16 @@ import (
 )
 
 var (
-	appContext          context.Context
-	contexts            map[string]context.CancelFunc
-	contextsLock        map[string]chan struct{}
-	ctxmutex            sync.Mutex
-	contextsLockMutext  sync.Mutex
-	acquire             chan struct{}
-	BR                  = '\n'
-	envFileLastModified = make(map[string]time.Time)
-	envFileKeys         = make(map[string]string)
+	appContext              context.Context
+	contexts                map[string]context.CancelFunc
+	contextsLock            map[string]chan struct{}
+	ctxmutex                sync.Mutex
+	contextsLockMutext      sync.Mutex
+	acquire                 chan struct{}
+	BR                      = '\n'
+	envFileLastModified     = make(map[string]time.Time)
+	envFileLastModifiedLock sync.Mutex
+	envFileKeys             = make(map[string]string)
 )
 
 var (
@@ -488,6 +489,7 @@ func trig(rule *Rule, pkg, path string) error {
 					log.Fatal(err)
 				}
 
+				envFileLastModifiedLock.Lock()
 				if lastModified, ok := envFileLastModified[e.Name]; !ok || fileInfo.ModTime().Sub(lastModified) > 0 {
 					b, err := ioutil.ReadFile(e.Name)
 					if err != nil {
@@ -497,6 +499,7 @@ func trig(rule *Rule, pkg, path string) error {
 					envFileKeys[e.Name] = string(b)
 					envFileLastModified[e.Name] = fileInfo.ModTime()
 				}
+				envFileLastModifiedLock.Unlock()
 
 				body = envFileKeys[e.Name]
 			}
