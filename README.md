@@ -43,6 +43,9 @@ FLAGS:
         wtc config file (default try to find [.]wtc.y[a]ml)
   -ignore string
         regex
+  -ignore-rules string
+        ignore one or more rules (e.g.: -ignore-rules "ruleA,ruleB"
+                                  or export WTC_IGNORE_RULES=ruleA,ruleB)
   -no-trace
         disable messages.
   -t string

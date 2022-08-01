@@ -41,6 +41,7 @@ var (
 	templateRegex = regexp.MustCompile(`\{\{\.([^}]+)\}\}`)
 	exportRe      = regexp.MustCompile(`(i?)export\s+`)
 	replaceEnvRe  = regexp.MustCompile(`(i?)\%\{[A-Z0-9_]+\}\%`)
+	ignoreRuleRe  = regexp.MustCompile(`(i?)\s*,\s*`)
 
 	TimeFormat = "15:04:05"
 
@@ -105,7 +106,16 @@ func ParseArgs() *Config {
 	var trigs string
 	flag.StringVar(&trigs, "t", "", "trig one or more rules by name\n\te.g.: wtc -t ruleA\n\t     wtc -t \"ruleA ruleB\"")
 
+	var rawIgnoreRules string
+	flag.StringVar(&rawIgnoreRules, "ignore-rules", "", "ignore one or more rules (e.g.: -ignore-rules \"ruleA,ruleB\"\n"+
+		"                          or export WTC_IGNORE_RULES=ruleA,ruleB)")
+
 	flag.Parse()
+
+	if raw := os.Getenv("WTC_IGNORE_RULES"); raw != "" {
+		rawIgnoreRules = raw
+	}
+	config.IgnoreRules = ignoreRuleRe.Split(strings.TrimSpace(rawIgnoreRules), -1)
 
 	ok, err := readConfig(config, configFilePath)
 	if err != nil {
@@ -303,6 +313,10 @@ func Start(cfg *Config) {
 					}
 
 					if rule.Match != "" && retrieveRegexp(rule.Match).MatchString(path) {
+						if strIn(rule.Name, config.IgnoreRules) {
+							continue
+						}
+
 						go func() {
 							if err := trig(rule, pkg, path); err != nil {
 								Log(rule.Name, TypeFail, err.Error(), true)
@@ -405,9 +419,22 @@ func Log(name, tpe, msg string, isStderr bool) {
 	}).Log()
 }
 
+func strIn(a string, list []string) bool {
+	for _, b := range list {
+		if b == a {
+			return true
+		}
+	}
+	return false
+}
+
 func findAndTrig(async bool, key []string, pkg, path string) {
 	var wg sync.WaitGroup
 	for _, s := range key {
+		if strIn(s, config.IgnoreRules) {
+			continue
+		}
+
 		found := false
 		for _, r := range config.Rules {
 			if r.Name == s {
