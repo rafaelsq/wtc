@@ -88,7 +88,9 @@ func ParseArgs() *Config {
 			"USAGE:\nwtc [[flags] [regex command]]\n"+
 				"\te.g.: wtc\n\t    // will read [.]wtc.y[a]ml\n"+
 				"\te.g.: wtc \"_test\\.go$\" \"go test -cover {PKG}\"\n\n"+
-				"wtc [flags]] [rule-name]\n\te.g.: wtc -t rule-name\n\t     wtc --no-trace \"rule ruleb\"\n"+
+				"wtc [flags]] [rule-name]\n\te.g.: wtc -t rule-name\n\t     wtc --no-trace \"rule ruleb\"\n\t"+
+				"     wtc -arg-pkg any/path rule\n\t"+
+				"     wtc -arg-file path/to/file.ext rule\n"+
 				"FLAGS:\n",
 		)
 		flag.PrintDefaults()
@@ -109,6 +111,9 @@ func ParseArgs() *Config {
 	var rawIgnoreRules string
 	flag.StringVar(&rawIgnoreRules, "ignore-rules", "", "ignore one or more rules (e.g.: -ignore-rules \"ruleA,ruleB\"\n"+
 		"                          or export WTC_IGNORE_RULES=ruleA,ruleB)")
+
+	flag.StringVar(&config.PkgArgument, "arg-pkg", "", "wtc -arg-pkg path/to/folder rule-name")
+	flag.StringVar(&config.FileArgument, "arg-file", "", "wtc -arg-file path/to/file rule-name")
 
 	flag.Parse()
 
@@ -493,6 +498,13 @@ func trig(rule *Rule, pkg, path string) error {
 		<-queue
 		return nil
 	case <-time.After(time.Duration(debounce) * time.Millisecond):
+	}
+
+	if config.PkgArgument != "" {
+		pkg = config.PkgArgument
+	}
+	if config.FileArgument != "" {
+		path = config.FileArgument
 	}
 
 	cmd := strings.ReplaceAll(strings.ReplaceAll(rule.Command, "{PKG}", pkg), "{FILE}", path)

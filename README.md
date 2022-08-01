@@ -36,7 +36,13 @@ wtc [[flags] [regex command]]
 wtc [flags]] [rule-name]
         e.g.: wtc -t rule-name
              wtc --no-trace "rule ruleb"
+             wtc -arg-pkg any/path rule
+             wtc -arg-file path/to/file.ext rule
 FLAGS:
+  -arg-file string
+        wtc -arg-file path/to/file rule-name
+  -arg-pkg string
+        wtc -arg-pkg path/to/folder rule-name
   -debounce int
         global debounce (default 300)
   -f string
