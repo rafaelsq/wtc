@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -351,7 +350,7 @@ func Start(cfg *Config) {
 func findFile() ([]byte, error) {
 	for _, file := range []string{"wtc.yaml", ".wtc.yaml", "wtc.yml", ".wtc.yml"} {
 		if _, err := os.Stat(file); err == nil {
-			return ioutil.ReadFile(file)
+			return os.ReadFile(file)
 		}
 	}
 
@@ -362,7 +361,7 @@ func readConfig(config *Config, filePath string) (bool, error) {
 	var yamlFile []byte
 	var err error
 	if len(filePath) != 0 {
-		yamlFile, err = ioutil.ReadFile(filePath)
+		yamlFile, err = os.ReadFile(filePath)
 	} else {
 		yamlFile, err = findFile()
 	}
@@ -534,7 +533,7 @@ func trig(rule *Rule, pkg, path string) error {
 
 				envFileLastModifiedLock.Lock()
 				if lastModified, ok := envFileLastModified[e.Name]; !ok || fileInfo.ModTime().Sub(lastModified) > 0 {
-					b, err := ioutil.ReadFile(e.Name)
+					b, err := os.ReadFile(e.Name)
 					if err != nil {
 						log.Fatal(err)
 					}
