@@ -1,18 +1,22 @@
 package wtc
 
+import "syscall"
+
 // Config defines the options for watching files
 type Config struct {
-	NoTrace      bool     `yaml:"no_trace"`
-	Ignore       string   `yaml:"ignore"`
-	Debounce     int      `yaml:"debounce"`
-	Rules        []*Rule  `yaml:"rules"`
-	Trig         []string `yaml:"trig"`
-	TrigAsync    []string `yaml:"trig_async"`
-	ExitOnTrig   bool     `yaml:"-"`
-	IgnoreRules  []string `yaml:"-"`
-	PkgArgument  string   `yaml:"-"`
-	FileArgument string   `yaml:"-"`
-	Env          []*Env   `yaml:"env"`
+	NoTrace      bool           `yaml:"no_trace"`
+	Ignore       string         `yaml:"ignore"`
+	Debounce     int            `yaml:"debounce"`
+	Rules        []*Rule        `yaml:"rules"`
+	Trig         []string       `yaml:"trig"`
+	TrigAsync    []string       `yaml:"trig_async"`
+	ExitOnTrig   bool           `yaml:"-"`
+	IgnoreRules  []string       `yaml:"-"`
+	PkgArgument  string         `yaml:"-"`
+	FileArgument string         `yaml:"-"`
+	Env          []*Env         `yaml:"env"`
+	KillSignal   syscall.Signal `yaml:"kill_signal"`
+	KillTimeout  uint           `yaml:"kill_timeout"`
 	Format       struct {
 		OK         string `yaml:"ok"`
 		Fail       string `yaml:"fail"`

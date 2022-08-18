@@ -70,6 +70,8 @@ Example with all options:
 no_trace: false
 debounce: 300  # if rule has no debounce, this will be used instead
 ignore: \.git/
+kill_signal: 2 # SIGINT (default: 9 SIGKILL)
+kill_timeout: 3 # how many seconds we wait for the applicaton to exit before we send SIGKILL(9)
 format:
   time: "15:04:05" # golang format
   ok: "\u001b[38;5;244m[{{.Time}}] \u001b[38;5;2m[{{.Title}}]\u001b[0m \u001b[38;5;238m{{.Message}}\u001b[0m\n"

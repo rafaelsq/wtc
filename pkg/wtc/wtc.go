@@ -96,7 +96,11 @@ func ParseArgs() *Config {
 		flag.PrintDefaults()
 	}
 
-	config := &Config{Debounce: 300}
+	config := &Config{
+		Debounce:    300,
+		KillSignal:  syscall.SIGKILL,
+		KillTimeout: 3,
+	}
 
 	var configFilePath string
 
@@ -677,7 +681,19 @@ func run(ctx context.Context, name, command string, env []string) error {
 		case <-ctx.Done():
 			// Process Group will use the same ID as this process.
 			// Kill the process group(minus)
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			_ = syscall.Kill(-cmd.Process.Pid, config.KillSignal)
+			if config.KillSignal != syscall.SIGKILL {
+				go func() {
+					t := time.NewTimer(time.Duration(config.KillTimeout) * time.Second)
+					defer t.Stop()
+
+					select {
+					case <-t.C:
+						_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+					case <-done:
+					}
+				}()
+			}
 		case <-done:
 		}
 		close(exit)
