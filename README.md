@@ -31,7 +31,7 @@ USAGE:
 wtc [[flags] [regex command]]
         e.g.: wtc
             // will read [.]wtc.y[a]ml
-        e.g.: wtc "_test\.go$" "go test -cover {PKG}"
+        e.g.: wtc -r -sfmt "_test\.go$" "go test -cover {PKG}"
 
 wtc [flags]] [rule-name]
         e.g.: wtc -t rule-name
@@ -54,6 +54,9 @@ FLAGS:
                                   or export WTC_IGNORE_RULES=ruleA,ruleB)
   -no-trace
         disable messages.
+  -r    run on start
+  -sfmt
+        simple format(stderr red)
   -t string
         trig one or more rules by name
                 e.g.: wtc -t ruleA

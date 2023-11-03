@@ -48,6 +48,11 @@ var (
 	TypeFail       = "\u001b[38;5;244m[{{.Time}}] \u001b[38;5;1m[{{.Title}}] \u001b[38;5;238m{{.Message}}\u001b[0m\n"
 	TypeCommandOK  = "\u001b[38;5;240m[{{.Time}}] [{{.Title}}] \u001b[0m{{.Message}}\n"
 	TypeCommandErr = "\u001b[38;5;240m[{{.Time}}] [{{.Title}}] \u001b[38;5;1m{{.Message}}\u001b[0m\n"
+
+	SimpleTypeOK         = "{{.Message}}\n"
+	SimpleTypeFail       = "\u001b[38;5;238m{{.Message}}\u001b[0m\n"
+	SimpleTypeCommandOK  = "\u001b[0m{{.Message}}\n"
+	SimpleTypeCommandErr = "\u001b[38;5;1m{{.Message}}\u001b[0m\n"
 )
 
 type Rune struct {
@@ -86,7 +91,7 @@ func ParseArgs() *Config {
 			flag.CommandLine.Output(),
 			"USAGE:\nwtc [[flags] [regex command]]\n"+
 				"\te.g.: wtc\n\t    // will read [.]wtc.y[a]ml\n"+
-				"\te.g.: wtc \"_test\\.go$\" \"go test -cover {PKG}\"\n\n"+
+				"\te.g.: wtc -r -sfmt \"_test\\.go$\" \"go test -cover {PKG}\"\n\n"+
 				"wtc [flags]] [rule-name]\n\te.g.: wtc -t rule-name\n\t     wtc --no-trace \"rule ruleb\"\n\t"+
 				"     wtc -arg-pkg any/path rule\n\t"+
 				"     wtc -arg-file path/to/file.ext rule\n"+
@@ -118,6 +123,12 @@ func ParseArgs() *Config {
 	flag.StringVar(&config.PkgArgument, "arg-pkg", "", "wtc -arg-pkg path/to/folder rule-name")
 	flag.StringVar(&config.FileArgument, "arg-file", "", "wtc -arg-file path/to/file rule-name")
 
+	var shouldRun bool
+	flag.BoolVar(&shouldRun, "r", false, "run on start")
+
+	var simpleFormat bool
+	flag.BoolVar(&simpleFormat, "sfmt", false, "simple format(stderr red)")
+
 	flag.Parse()
 
 	if raw := os.Getenv("WTC_IGNORE_RULES"); raw != "" {
@@ -146,6 +157,10 @@ func ParseArgs() *Config {
 			Match:   flag.Arg(0),
 			Command: flag.Arg(1),
 		})
+
+		if shouldRun {
+			config.Trig = []string{"run"}
+		}
 	}
 
 	if trigs != "" {
@@ -170,6 +185,13 @@ func ParseArgs() *Config {
 	}
 	if config.Format.Time != "" {
 		TimeFormat = config.Format.Time
+	}
+
+	if simpleFormat {
+		TypeOK = SimpleTypeOK
+		TypeFail = SimpleTypeFail
+		TypeCommandOK = SimpleTypeCommandOK
+		TypeCommandErr = SimpleTypeCommandErr
 	}
 
 	return config
