@@ -1,8 +1,6 @@
 package wtc
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -12,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -27,20 +26,18 @@ var (
 	contexts                map[string]context.CancelFunc
 	contextsLock            map[string]chan struct{}
 	ctxmutex                sync.Mutex
-	contextsLockMutext      sync.Mutex
-	acquire                 chan struct{}
-	BR                      = '\n'
+	contextsLockMutex       sync.Mutex
 	envFileLastModified     = make(map[string]time.Time)
 	envFileLastModifiedLock sync.Mutex
 	envFileKeys             = make(map[string]string)
 )
 
 var (
-	logger        chan Rune
-	templateRegex = regexp.MustCompile(`\{\{\.([^}]+)\}\}`)
-	exportRe      = regexp.MustCompile(`(i?)export\s+`)
-	replaceEnvRe  = regexp.MustCompile(`(i?)\%\{[A-Z0-9_]+\}\%`)
-	ignoreRuleRe  = regexp.MustCompile(`(i?)\s*,\s*`)
+	logger chan LogChunk
+
+	exportRe     = regexp.MustCompile(`(?i)export\s+`)
+	replaceEnvRe = regexp.MustCompile(`(?i)\%\{[A-Z0-9_]+\}\%`)
+	ignoreRuleRe = regexp.MustCompile(`(?i)\s*,\s*`)
 
 	TimeFormat = "15:04:05"
 
@@ -55,17 +52,13 @@ var (
 	SimpleTypeCommandErr = "\u001b[38;5;1m{{.Message}}\u001b[0m\n"
 )
 
-type Rune struct {
-	Type     string
-	Time     string
+// LogChunk represents a stream of bytes, allowing partial lines while maintaining thread safety
+type LogChunk struct {
 	Title    string
-	Rune     rune
+	Text     string
 	IsStderr bool
-	End      bool
-}
-
-func (l *Rune) Log() {
-	logger <- *l
+	Tpe      string
+	IsEOF    bool
 }
 
 func getContext(label string) (context.Context, context.CancelFunc) {
@@ -134,7 +127,9 @@ func ParseArgs() *Config {
 	if raw := os.Getenv("WTC_IGNORE_RULES"); raw != "" {
 		rawIgnoreRules = raw
 	}
-	config.IgnoreRules = ignoreRuleRe.Split(strings.TrimSpace(rawIgnoreRules), -1)
+	if trimmed := strings.TrimSpace(rawIgnoreRules); trimmed != "" {
+		config.IgnoreRules = ignoreRuleRe.Split(trimmed, -1)
+	}
 
 	ok, err := readConfig(config, configFilePath)
 	if err != nil {
@@ -171,15 +166,12 @@ func ParseArgs() *Config {
 	if config.Format.OK != "" {
 		TypeOK = config.Format.OK
 	}
-
 	if config.Format.Fail != "" {
 		TypeFail = config.Format.Fail
 	}
-
 	if config.Format.CommandOK != "" {
 		TypeCommandOK = config.Format.CommandOK
 	}
-
 	if config.Format.CommandErr != "" {
 		TypeCommandErr = config.Format.CommandErr
 	}
@@ -201,76 +193,99 @@ func Start(cfg *Config) {
 	var cancelAll context.CancelFunc
 
 	config = cfg
+	ctxmutex.Lock()
 	appContext, cancelAll = context.WithCancel(context.Background())
 	contexts = make(map[string]context.CancelFunc)
+	ctxmutex.Unlock()
+
+	contextsLockMutex.Lock()
 	contextsLock = make(map[string]chan struct{})
+	contextsLockMutex.Unlock()
 
 	dir, err := os.Getwd()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	acquire = make(chan struct{}, 1)
-	logger = make(chan Rune, 1)
+	logger = make(chan LogChunk, 500)
+
+	// Centralized terminal formatting and multiplexing goroutine
 	go func() {
-		var current string
-		var currentIsErr *bool
-		var currentOut *os.File
-		var currentArgs [][]byte
-		for r := range logger {
+		var activeTitle string
+		var activeTpe string
+		var activeIsStderr *bool
+		var midLine bool
 
-			if r.End {
-				current = ""
-				currentIsErr = nil
+		printSuffix := func() {
+			if !midLine {
+				return
+			}
+			outStr := strings.ReplaceAll(activeTpe, "{{.Time}}", time.Now().Format(TimeFormat))
+			outStr = strings.ReplaceAll(outStr, "{{.Title}}", activeTitle)
+			parts := strings.Split(outStr, "{{.Message}}")
+
+			suffix := "\n"
+			if len(parts) >= 2 {
+				suffix = parts[1]
+			}
+			if !strings.HasSuffix(suffix, "\n") {
+				suffix += "\n"
+			}
+
+			out := os.Stdout
+			if activeIsStderr != nil && *activeIsStderr {
+				out = os.Stderr
+			}
+			fmt.Fprint(out, suffix)
+			midLine = false
+		}
+
+		for c := range logger {
+			if c.IsEOF {
+				if c.Title == activeTitle {
+					printSuffix()
+				}
 				continue
 			}
 
-			if r.Rune == BR || (r.Title != current || (currentIsErr == nil || r.IsStderr != *currentIsErr)) {
-				// close current
-				if currentOut != nil {
-					_, err = (*currentOut).Write(currentArgs[1])
-					if err != nil {
-						log.Println(err)
-					}
-				}
-
-				// parse tpl
-				output := []byte(templateRegex.ReplaceAllStringFunc(r.Type, func(k string) string {
-					switch k[3:][:len(k)-5] {
-					case "Time":
-						return time.Now().Format(TimeFormat)
-					case "Title":
-						return r.Title
-					default:
-						return k
-					}
-				}))
-
-				// set current
-				current = r.Title
-				currentIsErr = &[]bool{r.IsStderr}[0]
-				currentArgs = bytes.Split(output, []byte("{{.Message}}"))
-
-				if r.IsStderr {
-					currentOut = os.Stderr
-				} else {
-					currentOut = os.Stdout
-				}
-
-				// write start
-				_, err = currentOut.Write(currentArgs[0])
-				if err != nil {
-					log.Println(err)
-				}
+			out := os.Stdout
+			if c.IsStderr {
+				out = os.Stderr
 			}
 
-			if r.Rune == 0 || r.Rune == BR {
-				continue
+			// If switching processes while mid-line, cleanly break the line first
+			if midLine && (activeTitle != c.Title || (activeIsStderr != nil && *activeIsStderr != c.IsStderr)) {
+				printSuffix()
 			}
 
-			_, err = fmt.Fprintf(currentOut, "%c", r.Rune)
-			if err != nil {
-				log.Println(err)
+			activeTitle = c.Title
+			activeTpe = c.Tpe
+			isErr := c.IsStderr
+			activeIsStderr = &isErr
+
+			lines := strings.Split(c.Text, "\n")
+			for i, line := range lines {
+				isLast := i == len(lines)-1
+
+				if !midLine {
+					// Skip printing prefix if this is just an empty trailing string from a newline split
+					if isLast && line == "" {
+						continue
+					}
+
+					outStr := strings.ReplaceAll(activeTpe, "{{.Time}}", time.Now().Format(TimeFormat))
+					outStr = strings.ReplaceAll(outStr, "{{.Title}}", activeTitle)
+					parts := strings.Split(outStr, "{{.Message}}")
+					fmt.Fprint(out, parts[0])
+					midLine = true
+				}
+
+				fmt.Fprint(out, line)
+
+				// If there are more elements in the split, it means a '\n' occurred in the chunk
+				if !isLast {
+					printSuffix() // prints the format reset and the newline
+				}
 			}
 		}
 	}()
@@ -280,7 +295,6 @@ func Start(cfg *Config) {
 			findAndTrig(false, config.Trig, "./", "./")
 			os.Exit(0)
 		}
-
 		if len(config.TrigAsync) > 0 {
 			go findAndTrig(true, config.TrigAsync, "./", "./")
 		}
@@ -302,21 +316,22 @@ func Start(cfg *Config) {
 		for {
 			select {
 			case err := <-w.Error:
-				log.Fatal(err)
+				log.Println(err)
 			case <-w.Closed:
 				return
 			case <-exitSignal:
 				cancelAll()
-
 				for _, r := range config.Rules {
-					contextsLockMutext.Lock()
-					if l, exists := contextsLock[r.Name]; exists {
-						contextsLockMutext.Unlock()
-						l <- struct{}{}
-						<-l
-						continue
+					contextsLockMutex.Lock()
+					l, exists := contextsLock[r.Name]
+					contextsLockMutex.Unlock()
+					if exists {
+						select {
+						case l <- struct{}{}:
+							<-l
+						default:
+						}
 					}
-					contextsLockMutext.Unlock()
 				}
 				w.Close()
 			case e := <-w.Event:
@@ -325,19 +340,15 @@ func Start(cfg *Config) {
 				}
 
 				path := e.Path
-
 				pieces := strings.Split("."+strings.Split(path, dir)[1], "/")
 				pkg := strings.Join(pieces[:len(pieces)-1], "/")
 
-				if config.Ignore != "" {
-					if retrieveRegexp(config.Ignore).MatchString(path) {
-						continue
-					}
+				if config.Ignore != "" && retrieveRegexp(config.Ignore).MatchString(path) {
+					continue
 				}
 
 				for _, rule := range config.Rules {
 					rule := rule
-
 					if rule.Ignore != "" && retrieveRegexp(rule.Ignore).MatchString(path) {
 						continue
 					}
@@ -375,7 +386,6 @@ func findFile() ([]byte, error) {
 			return os.ReadFile(file)
 		}
 	}
-
 	return nil, nil
 }
 
@@ -395,11 +405,11 @@ func readConfig(config *Config, filePath string) (bool, error) {
 		envs := os.Environ()
 		keys := make(map[string]string, len(envs))
 		for _, v := range envs {
-			pieces := strings.Split(v, "=")
-			keys[pieces[0]] = strings.Join(pieces[1:], "=")
+			pieces := strings.SplitN(v, "=", 2)
+			if len(pieces) == 2 {
+				keys[pieces[0]] = pieces[1]
+			}
 		}
-
-		replaceEnvRe := regexp.MustCompile(`(i?)\%\{[A-Z0-9_]+\}\%`)
 
 		yamlFile = []byte(replaceEnvRe.ReplaceAllStringFunc(string(yamlFile), func(k string) string {
 			return keys[strings.TrimSuffix(strings.TrimPrefix(k, "%{"), "}%")]
@@ -416,37 +426,26 @@ var regexpMap = map[string]*regexp.Regexp{}
 
 func retrieveRegexp(pattern string) *regexp.Regexp {
 	regexpMutex.Lock()
-	var result, ok = regexpMap[pattern]
+	defer regexpMutex.Unlock()
+	result, ok := regexpMap[pattern]
 	if !ok {
 		result = regexp.MustCompile(pattern)
 		regexpMap[pattern] = result
 	}
-	regexpMutex.Unlock()
 	return result
 }
 
+// Log handles manual system messages, ensuring they break their lines cleanly.
 func Log(name, tpe, msg string, isStderr bool) {
-
-	acquire <- struct{}{}
-	defer func() {
-		<-acquire
-	}()
-
-	for _, c := range msg {
-		(&Rune{
-			Type:     tpe,
-			Title:    name,
-			Rune:     c,
-			IsStderr: isStderr,
-		}).Log()
+	if !strings.HasSuffix(msg, "\n") {
+		msg += "\n"
 	}
-
-	(&Rune{
-		Type:     tpe,
+	logger <- LogChunk{
 		Title:    name,
+		Text:     msg,
 		IsStderr: isStderr,
-		End:      true,
-	}).Log()
+		Tpe:      tpe,
+	}
 }
 
 func strIn(a string, list []string) bool {
@@ -494,24 +493,23 @@ func findAndTrig(async bool, key []string, pkg, path string) {
 			Log(s, TypeFail, "rule not found", true)
 		}
 	}
-
 	wg.Wait()
 }
 
 func trig(rule *Rule, pkg, path string) error {
 	ctx, cancel := getContext(rule.Name)
 
-	contextsLockMutext.Lock()
-	var queue chan struct{}
-	var has bool
-	queue, has = contextsLock[rule.Name]
+	contextsLockMutex.Lock()
+	queue, has := contextsLock[rule.Name]
 	if !has {
 		queue = make(chan struct{}, 1)
 		contextsLock[rule.Name] = queue
 	}
-	contextsLockMutext.Unlock()
+	contextsLockMutex.Unlock()
 
 	queue <- struct{}{}
+	defer func() { <-queue }()
+	defer cancel()
 
 	debounce := config.Debounce
 	if rule.Debounce != nil {
@@ -520,7 +518,6 @@ func trig(rule *Rule, pkg, path string) error {
 
 	select {
 	case <-ctx.Done():
-		<-queue
 		return nil
 	case <-time.After(time.Duration(debounce) * time.Millisecond):
 	}
@@ -537,36 +534,38 @@ func trig(rule *Rule, pkg, path string) error {
 	keys := map[string]string{}
 	envs := os.Environ()
 	for _, v := range envs {
-		pieces := strings.Split(v, "=")
-		keys[pieces[0]] = strings.Join(pieces[1:], "=")
+		pieces := strings.SplitN(v, "=", 2)
+		if len(pieces) == 2 {
+			keys[pieces[0]] = pieces[1]
+		}
 	}
 	for _, e := range append(config.Env, rule.Env...) {
 		if strings.ToLower(e.Type) == "file" {
 			if e.Name == "" {
-				log.Fatal("field \"name\" must point to a file")
+				Log(rule.Name, TypeFail, "field \"name\" must point to a file", true)
+				return fmt.Errorf("field \"name\" must point to a file")
 			}
 
-			var body string
-			{
-				fileInfo, err := os.Stat(e.Name)
+			fileInfo, err := os.Stat(e.Name)
+			if err != nil {
+				Log(rule.Name, TypeFail, err.Error(), true)
+				return err
+			}
+
+			envFileLastModifiedLock.Lock()
+			if lastModified, ok := envFileLastModified[e.Name]; !ok || fileInfo.ModTime().Sub(lastModified) > 0 {
+				b, err := os.ReadFile(e.Name)
 				if err != nil {
-					log.Fatal(err)
+					envFileLastModifiedLock.Unlock()
+					Log(rule.Name, TypeFail, err.Error(), true)
+					return err
 				}
 
-				envFileLastModifiedLock.Lock()
-				if lastModified, ok := envFileLastModified[e.Name]; !ok || fileInfo.ModTime().Sub(lastModified) > 0 {
-					b, err := os.ReadFile(e.Name)
-					if err != nil {
-						log.Fatal(err)
-					}
-
-					envFileKeys[e.Name] = string(b)
-					envFileLastModified[e.Name] = fileInfo.ModTime()
-				}
-				envFileLastModifiedLock.Unlock()
-
-				body = envFileKeys[e.Name]
+				envFileKeys[e.Name] = string(b)
+				envFileLastModified[e.Name] = fileInfo.ModTime()
 			}
+			body := envFileKeys[e.Name]
+			envFileLastModifiedLock.Unlock()
 
 			body = replaceEnvRe.ReplaceAllStringFunc(body, func(k string) string {
 				return keys[strings.TrimSuffix(strings.TrimPrefix(k, "%{"), "}%")]
@@ -575,9 +574,9 @@ func trig(rule *Rule, pkg, path string) error {
 			for _, l := range strings.Split(body, "\n") {
 				l := strings.TrimSpace(l)
 				if len(l) > 0 && l[0] != '#' {
-					pieces := strings.Split(exportRe.ReplaceAllString(l, ""), "=")
-					if len(pieces) > 1 {
-						keys[strings.TrimSpace(pieces[0])] = strings.Join(pieces[1:], "=")
+					pieces := strings.SplitN(exportRe.ReplaceAllString(l, ""), "=", 2)
+					if len(pieces) == 2 {
+						keys[strings.TrimSpace(pieces[0])] = pieces[1]
 					}
 				}
 			}
@@ -596,23 +595,15 @@ func trig(rule *Rule, pkg, path string) error {
 
 	err := run(ctx, rule.Name, cmd, envs)
 	if err == context.Canceled {
-		<-queue
 		return nil
 	}
-
 	if err != nil {
-		<-queue
-		cancel()
 		return err
 	}
-
-	<-queue
-	cancel()
 
 	if len(rule.TrigAsync) > 0 {
 		go findAndTrig(true, rule.TrigAsync, pkg, path)
 	}
-
 	if len(rule.Trig) > 0 {
 		findAndTrig(false, rule.Trig, pkg, path)
 	}
@@ -620,115 +611,149 @@ func trig(rule *Rule, pkg, path string) error {
 	return nil
 }
 
-func pipeChar(rr io.Reader, tpe, id string, isStderr bool) {
-
-	reader := bufio.NewReader(rr)
-
-	me := false
-
-	cancel := make(chan struct{})
-
+// pipeStream reads chunks of bytes instead of lines, allowing real-time prompts and progress bars
+func pipeStream(r io.Reader, tpe, id string, isStderr bool) {
+	buf := make([]byte, 1024)
 	for {
-		r, _, err := reader.ReadRune()
+		n, err := r.Read(buf)
+		if n > 0 {
+			logger <- LogChunk{
+				Title:    id,
+				Text:     string(buf[:n]),
+				IsStderr: isStderr,
+				Tpe:      tpe,
+			}
+		}
+		if err != nil {
+			logger <- LogChunk{Title: id, IsEOF: true}
+			break
+		}
+	}
+}
 
-		if !me {
-			acquire <- struct{}{}
-			me = true
+func killProcessAndChildren(cmd *exec.Cmd, done <-chan struct{}) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+
+	if runtime.GOOS == "windows" {
+		_ = cmd.Process.Kill()
+		return
+	}
+
+	if cmd.SysProcAttr != nil && cmd.SysProcAttr.Setsid {
+		_ = syscall.Kill(-cmd.Process.Pid, config.KillSignal)
+
+		if config.KillSignal != syscall.SIGKILL {
 			go func() {
-				<-cancel
+				t := time.NewTimer(time.Duration(config.KillTimeout) * time.Second)
+				defer t.Stop()
+
+				select {
+				case <-t.C:
+					_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+				case <-done:
+				}
 			}()
 		}
-
-		cancel <- struct{}{}
-
-		if err != nil {
-			(&Rune{Type: tpe, Title: id, End: true, IsStderr: isStderr}).Log()
-			me = false
-			<-acquire
-			return
-		}
-
-		if r == BR {
-			(&Rune{Type: tpe, Title: id, Rune: r, IsStderr: isStderr}).Log()
-			me = false
-			<-acquire
-			continue
-		}
-
-		(&Rune{Type: tpe, Title: id, Rune: r, IsStderr: isStderr}).Log()
-
-		go func() {
-			select {
-			case <-cancel:
-			case <-time.After(time.Second / 2):
-				me = false
-				<-acquire
-			}
-		}()
+	} else {
+		_ = cmd.Process.Kill()
 	}
 }
 
 func run(ctx context.Context, name, command string, env []string) error {
-	cmd := exec.Command("sh", "-c", command)
-
-	stdout, tty, err := pty.Open()
-	if err != nil {
-		return err
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("cmd", "/c", command)
+	} else {
+		cmd = exec.Command("sh", "-c", command)
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	}
-	defer tty.Close()
 
-	stderr, tty2, err := pty.Open()
-	if err != nil {
-		return err
+	var stdout, stderr io.ReadCloser
+	var err error
+
+	var tty, tty2 *os.File
+
+	if runtime.GOOS == "windows" {
+		stdout, err = cmd.StdoutPipe()
+		if err != nil {
+			return err
+		}
+		stderr, err = cmd.StderrPipe()
+		if err != nil {
+			return err
+		}
+	} else {
+		stdout, tty, err = pty.Open()
+		if err != nil {
+			return err
+		}
+		defer stdout.Close()
+
+		stderr, tty2, err = pty.Open()
+		if err != nil {
+			tty.Close()
+			return err
+		}
+		defer stderr.Close()
+
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = tty
+		cmd.Stderr = tty2
 	}
-	defer tty2.Close()
-
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = tty
-	cmd.Stderr = tty2
 
 	cmd.Env = env
 
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-
 	if err := cmd.Start(); err != nil {
+		if tty != nil {
+			tty.Close()
+		}
+		if tty2 != nil {
+			tty2.Close()
+		}
 		return err
 	}
 
+	if tty != nil {
+		tty.Close()
+	}
+	if tty2 != nil {
+		tty2.Close()
+	}
+
 	done := make(chan struct{})
-	exit := make(chan struct{})
 	go func() {
 		select {
 		case <-ctx.Done():
-			// Process Group will use the same ID as this process.
-			// Kill the process group(minus)
-			_ = syscall.Kill(-cmd.Process.Pid, config.KillSignal)
-			if config.KillSignal != syscall.SIGKILL {
-				go func() {
-					t := time.NewTimer(time.Duration(config.KillTimeout) * time.Second)
-					defer t.Stop()
-
-					select {
-					case <-t.C:
-						_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-					case <-done:
-					}
-				}()
-			}
+			killProcessAndChildren(cmd, done)
 		case <-done:
 		}
-		close(exit)
 	}()
 
-	go pipeChar(stdout, TypeCommandOK, name, false)
-	go pipeChar(stderr, TypeCommandErr, name, true)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		pipeStream(stdout, TypeCommandOK, name, false)
+	}()
+	go func() {
+		defer wg.Done()
+		pipeStream(stderr, TypeCommandErr, name, true)
+	}()
 
 	err = cmd.Wait()
-	if err != nil && uint32(cmd.ProcessState.Sys().(syscall.WaitStatus)) == uint32(syscall.SIGKILL) {
-		err = context.Canceled
+	close(done)
+
+	wg.Wait()
+
+	if err != nil && cmd.ProcessState != nil && runtime.GOOS != "windows" {
+		if ws, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok {
+			if ws.Signaled() && ws.Signal() == syscall.SIGKILL {
+				err = context.Canceled
+			}
+		}
 	}
 
-	close(done)
-	<-exit
 	return err
 }
